@@ -80,6 +80,54 @@ async def ingest_llm_call(record: LLMCallRecord):
     return {"status": "ok", "call_id": call_id}
 
 
+class SpanRecord(BaseModel):
+    span_id: str = ""
+    trace_id: str = ""
+    parent_id: str = ""
+    name: str = ""
+    agent_id: str = ""
+    status: str = "success"
+    input_text: str = ""
+    output_text: str = ""
+    duration_ms: float = 0
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@router.post("/span")
+async def ingest_span(record: SpanRecord):
+    """트레이스 Span 기록."""
+    from datetime import datetime, timezone, timedelta
+    try:
+        from app.database import get_db_context
+        from app.models.observability import TraceSpanModel
+        async with get_db_context() as db:
+            now = datetime.now(timezone.utc)
+            span = TraceSpanModel(
+                id=record.span_id or str(__import__('uuid').uuid4()),
+                trace_id=record.trace_id,
+                parent_id=record.parent_id or None,
+                name=record.name,
+                agent_id=record.agent_id or None,
+                status=record.status,
+                input_text=record.input_text[:200] if record.input_text else None,
+                output_text=record.output_text[:200] if record.output_text else None,
+                start_time=now - timedelta(milliseconds=record.duration_ms),
+                end_time=now,
+                duration_ms=record.duration_ms,
+                span_metadata=record.metadata,
+            )
+            db.add(span)
+            await db.commit()
+
+        from app.routers.stream import broadcast_event
+        broadcast_event("new_span", record.model_dump())
+
+        return {"status": "ok", "span_id": span.id}
+    except Exception as e:
+        logger.warning(f"Span ingest failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
 @router.post("/batch")
 async def ingest_batch(batch: BatchIngest):
     """배치 수집 (여러 기록 한번에)."""

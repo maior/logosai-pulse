@@ -99,6 +99,31 @@ class DailyStat(Base):
     total_llm_calls: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class TraceSpanModel(Base):
+    """트레이스 Span — 실행 계층 구조."""
+    __tablename__ = "trace_spans"
+    __table_args__ = (
+        Index("ix_span_trace", "trace_id"),
+        Index("ix_span_parent", "parent_id"),
+        Index("ix_span_created", "created_at"),
+        {"schema": "logosus"},
+    )
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    trace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    parent_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    agent_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    input_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    output_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    start_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    span_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now())
+
+
 class UserFeedback(Base):
     """사용자 피드백 (👍/👎)."""
     __tablename__ = "user_feedback"
