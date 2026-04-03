@@ -7,6 +7,7 @@ import { TrendChart } from '@/components/TrendChart';
 import { CostChart } from '@/components/CostChart';
 import { TraceTable } from '@/components/TraceTable';
 import { WaterfallView } from '@/components/WaterfallView';
+import { SpanTreeView } from '@/components/SpanTreeView';
 import { FeedbackTab } from '@/components/FeedbackTab';
 import { LearningTab } from '@/components/LearningTab';
 
@@ -20,6 +21,7 @@ export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const [traces, setTraces] = useState<any[]>([]);
   const [selectedTrace, setSelectedTrace] = useState<string | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [traceDetail, setTraceDetail] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [liveCount, setLiveCount] = useState(0);
@@ -82,6 +84,16 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleTraceSelect = useCallback((id: string | null) => {
+    setSelectedTrace(id);
+    if (id) {
+      const trace = traces.find((t: any) => t.id === id);
+      setSelectedTraceId(trace?.trace_id || null);
+    } else {
+      setSelectedTraceId(null);
+    }
+  }, [traces]);
 
   useEffect(() => {
     if (!selectedTrace) { setTraceDetail(null); return; }
@@ -176,9 +188,12 @@ export default function Dashboard() {
 
         {/* Traces Tab */}
         {tab === 'traces' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <TraceTable traces={traces} selectedId={selectedTrace} onSelect={setSelectedTrace} />
-            <WaterfallView detail={traceDetail} />
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <TraceTable traces={traces} selectedId={selectedTrace} onSelect={handleTraceSelect} />
+              <SpanTreeView executionId={selectedTraceId} />
+            </div>
+            {selectedTrace && <WaterfallView detail={traceDetail} />}
           </div>
         )}
 

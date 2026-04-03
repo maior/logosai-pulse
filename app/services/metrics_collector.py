@@ -332,6 +332,7 @@ class MetricsCollector:
                         "cost_usd": round(e.cost_usd, 4),
                         "created_at": e.created_at.isoformat() if e.created_at else None,
                         "error_message": e.error_message,
+                        "trace_id": (e.metadata_json or {}).get("trace_id", ""),
                     }
                     for e in executions
                 ]

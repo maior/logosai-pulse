@@ -75,6 +75,75 @@ async def get_trace_detail(execution_id: str):
     return await collector.get_trace_detail(execution_id)
 
 
+@router.get("/traces/{execution_id}/tree")
+async def get_trace_tree(execution_id: str):
+    """트레이스 Span 트리 — 계층 구조."""
+    from sqlalchemy import select
+    from app.database import get_db_context
+    from app.models.observability import TraceSpanModel
+
+    try:
+        async with get_db_context() as db:
+            # execution_id를 trace_id로 사용하여 모든 span 조회
+            result = await db.execute(
+                select(TraceSpanModel)
+                .where(TraceSpanModel.trace_id == execution_id)
+                .order_by(TraceSpanModel.created_at)
+            )
+            spans = result.scalars().all()
+
+            if not spans:
+                # trace_id가 아닌 경우 span id로 시도
+                result = await db.execute(
+                    select(TraceSpanModel)
+                    .where(TraceSpanModel.id == execution_id)
+                )
+                root = result.scalar_one_or_none()
+                if root:
+                    result = await db.execute(
+                        select(TraceSpanModel)
+                        .where(TraceSpanModel.trace_id == root.trace_id)
+                        .order_by(TraceSpanModel.created_at)
+                    )
+                    spans = result.scalars().all()
+
+            span_list = [
+                {
+                    "id": s.id,
+                    "trace_id": s.trace_id,
+                    "parent_id": s.parent_id,
+                    "name": s.name,
+                    "agent_id": s.agent_id,
+                    "status": s.status,
+                    "input": s.input_text,
+                    "output": s.output_text,
+                    "duration_ms": s.duration_ms,
+                    "metadata": s.span_metadata,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in spans
+            ]
+
+            # Build tree structure
+            by_id = {s["id"]: {**s, "children": []} for s in span_list}
+            roots = []
+            for s in span_list:
+                if s["parent_id"] and s["parent_id"] in by_id:
+                    by_id[s["parent_id"]]["children"].append(by_id[s["id"]])
+                else:
+                    roots.append(by_id[s["id"]])
+
+            return {
+                "trace_id": spans[0].trace_id if spans else execution_id,
+                "total_spans": len(spans),
+                "tree": roots,
+                "flat": span_list,
+            }
+    except Exception as e:
+        logger.warning(f"get_trace_tree failed: {e}")
+        return {"tree": [], "flat": [], "total_spans": 0}
+
+
 @router.get("/costs")
 async def get_costs(period: str = Query("24h")):
     """비용 분석."""

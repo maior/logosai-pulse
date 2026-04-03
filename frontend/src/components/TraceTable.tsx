@@ -11,6 +11,7 @@ interface Trace {
   cost_usd: number;
   created_at: string;
   error_message?: string;
+  trace_id?: string;
 }
 
 interface Props {
