@@ -57,6 +57,11 @@ async def ingest_execution(record: ExecutionRecord):
         return {"status": "not_initialized"}
 
     exec_id = await collector.record_execution(**record.model_dump())
+
+    # SSE broadcast
+    from app.routers.stream import broadcast_event
+    broadcast_event("new_execution", {**record.model_dump(), "execution_id": exec_id})
+
     return {"status": "ok", "execution_id": exec_id}
 
 
@@ -68,6 +73,10 @@ async def ingest_llm_call(record: LLMCallRecord):
         return {"status": "not_initialized"}
 
     call_id = await collector.record_llm_call(**record.model_dump())
+
+    from app.routers.stream import broadcast_event
+    broadcast_event("new_llm_call", {**record.model_dump(), "call_id": call_id})
+
     return {"status": "ok", "call_id": call_id}
 
 

@@ -99,6 +99,25 @@ class DailyStat(Base):
     total_llm_calls: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class UserFeedback(Base):
+    """사용자 피드백 (👍/👎)."""
+    __tablename__ = "user_feedback"
+    __table_args__ = (
+        Index("ix_feedback_agent", "agent_id"),
+        Index("ix_feedback_created", "created_at"),
+        {"schema": "logosus"},
+    )
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    execution_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), ForeignKey("logosus.agent_executions.id", ondelete="SET NULL"), nullable=True)
+    agent_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1=good, -1=bad
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    query: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    user_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now())
+
+
 COST_PER_1M_TOKENS = {
     "gemini-2.5-flash-lite": {"input": 0.075, "output": 0.30},
     "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
