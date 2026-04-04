@@ -59,6 +59,7 @@ export default function Dashboard() {
         token_count: 0,
         cost_usd: 0,
         created_at: new Date().toISOString(),
+        trace_id: data.metadata?.trace_id || '',
       }, ...prev].slice(0, 50));
       setLiveCount(c => c + 1);
       // Refresh dashboard data

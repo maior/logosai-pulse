@@ -169,7 +169,7 @@ export function SpanTreeView({ executionId }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!executionId) {
+    if (!executionId || executionId.length < 8) {
       setTreeData(null);
       return;
     }
