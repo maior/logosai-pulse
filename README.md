@@ -1,8 +1,8 @@
 # LogosPulse
 
-**Agent Observability Service for LogosAI** — LangSmith-level tracing, metrics, and cost tracking.
+**Agent Observability Service for LogosAI** — OpenTelemetry-style tracing, metrics, cost tracking, feedback, and adaptive learning.
 
-LogosPulse is an independent observability service that monitors AI agent executions, tracks LLM calls (tokens, latency, cost), and provides real-time dashboards. It follows the same architectural pattern as LangSmith: a lightweight SDK sends metrics via HTTP fire-and-forget, and a separate service stores and visualizes the data.
+LogosPulse is an independent observability service that monitors AI agent executions with hierarchical span tracing, tracks LLM calls (tokens, latency, cost), collects user feedback, and runs an adaptive learning loop. Agents send metrics via a lightweight fire-and-forget SDK — zero impact on agent performance.
 
 ## Architecture
 
@@ -12,42 +12,62 @@ LogosPulse is an independent observability service that monitors AI agent execut
 │   (8010)  │    │   (8090)  │    │   (8888)  │
 └─────┬─────┘    └─────┬─────┘    └─────┬─────┘
       │                │                │
-      │ GET /dashboard │ POST /ingest   │ POST /ingest
-      │                │ (fire-forget)  │ (fire-forget)
+      │ Feedback 👍/👎  │ POST /ingest   │ POST /ingest
+      │ GET /dashboard │ (fire-forget)  │ (execution, llm-call, span)
       ▼                ▼                ▼
-┌─────────────────────────────────────────────┐
-│           LogosPulse (8095)                   │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
-│  │ Ingest   │  │Dashboard │  │ PostgreSQL│  │
-│  │   API    │  │   API    │  │  Storage  │  │
-│  └──────────┘  └──────────┘  └───────────┘  │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│              LogosPulse (8095)                        │
+│  ┌────────┐  ┌─────────┐  ┌────────┐  ┌──────────┐ │
+│  │ Ingest │  │Dashboard│  │Feedback│  │ Learning │ │
+│  │  API   │  │  API    │  │  API   │  │   Loop   │ │
+│  └────────┘  └─────────┘  └────────┘  └──────────┘ │
+│  ┌────────┐  ┌─────────┐  ┌──────────────────────┐ │
+│  │ Span   │  │ Trace   │  │     PostgreSQL        │ │
+│  │ Ingest │  │Tree API │  │ (logosus schema)      │ │
+│  └────────┘  └─────────┘  └──────────────────────┘ │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│  Frontend (8096)    │
+│  Next.js Dashboard  │
+│  - KPIs & Charts    │
+│  - Span Tree View   │
+│  - Feedback Stats   │
+│  - Learning Status  │
+└─────────────────────┘
 ```
 
-### Key Design Principles
+### Design Principles
 
-- **Zero impact on agents**: Fire-and-forget HTTP calls. If LogosPulse is down, agents continue working normally.
-- **Independent service**: No import dependencies on ACP or logos_api. Communicates only via HTTP.
-- **Lightweight SDK**: `pulse_client.py` (~50 lines) sends metrics asynchronously.
-- **Real-time dashboard**: Next.js frontend with live charts and trace viewer.
+- **Zero impact on agents**: Fire-and-forget HTTP (2s timeout). LogosPulse down? Agents continue normally.
+- **Independent service**: No import dependencies on ACP or logos_api. HTTP only.
+- **Lightweight SDK**: `pulse_client.py` — `send_execution_bg()`, `send_llm_call_bg()`, `send_span_bg()`.
+- **OpenTelemetry-style**: ContextVar-based trace propagation, parent-child span hierarchy.
 
 ## Features
 
-### Metrics Collection
-- **Agent Execution Tracking**: Every agent call is recorded with query, duration, success/failure, tokens, and cost.
-- **LLM Call Tracing**: Each LLM API call is tracked with model, provider, input/output tokens, latency, and calculated cost.
-- **Daily Aggregation**: Automatic daily rollup for fast dashboard queries.
-- **Cost Calculation**: Built-in pricing table for Gemini, GPT-4o, Claude models.
+### Execution Tracking
+Every agent call recorded: query, duration, success/failure, tokens, cost, trace_id.
 
-### Dashboard
-- **KPI Cards**: Total calls, success rate, avg response time, total cost.
-- **Agent Success Rate**: Bar chart by agent.
-- **Response Time Trend**: Line chart over time.
-- **Cost Breakdown**: Pie chart by model.
-- **Trace Table**: Recent executions with status, duration, cost.
-- **Trace Detail**: Tree view of LLM calls within an execution (like LangSmith).
+### OpenTelemetry-Style Span Tracing
+Hierarchical spans with ContextVar-based parent propagation:
 
-### Supported Models (Cost Tracking)
+```
+Root Span: weather_agent.process (5197ms)
+├── LLM Span: llm.gemini-2.5-flash-lite (1106ms) — location extraction
+└── LLM Span: llm.gemini-2.5-flash-lite (3232ms) — weather advice generation
+```
+
+- Root spans auto-created in ACP `sse_handlers.py` before `agent.process()`
+- LLM spans auto-created in `LLMClient.invoke_messages()` after each call
+- `TraceSpan` class uses `ContextVar` for async-safe parent propagation
+- Overhead: ~0.01ms/span (fire-and-forget HTTP)
+
+### LLM Call Tracing
+Each LLM API call tracked: model, provider, input/output tokens, latency, cost.
+
+### Cost Tracking
 
 | Model | Input ($/1M tokens) | Output ($/1M tokens) |
 |-------|---------------------|----------------------|
@@ -56,46 +76,75 @@ LogosPulse is an independent observability service that monitors AI agent execut
 | gemini-2.5-pro | $1.25 | $10.00 |
 | gpt-4o-mini | $0.15 | $0.60 |
 | gpt-4o | $2.50 | $10.00 |
-| gpt-4.1-mini | $0.40 | $1.60 |
 | claude-3.5-sonnet | $3.00 | $15.00 |
+
+### User Feedback
+Collect thumbs up/down from users. Per-agent satisfaction tracking.
+
+### Adaptive Learning Loop
+Background loop (10-min cycle) that detects failing agents (success rate < 70%), analyzes failure patterns, and triggers improvement via FORGE.
+
+### Dashboard (Next.js, port 8096)
+
+| Tab | Content |
+|-----|---------|
+| **Dashboard** | KPI cards, Agent success rate bars, Cost by model pie chart, Response time trend |
+| **Traces** | Execution list + SpanTreeView (hierarchical span tree with click-to-expand detail) |
+| **Feedback** | Positive/Negative counts, Satisfaction %, Per-agent satisfaction bars, Recent feedback list |
+| **Learning** | Loop status, Agent health (healthy/warning/degraded/critical), Improvement history |
+
+SSE real-time: New executions and LLM calls appear instantly on the dashboard.
 
 ## Quick Start
 
-### 1. Start LogosPulse Server
+### 1. Start LogosPulse
 
 ```bash
 cd logos_pulse
 ./scripts/start.sh
 # 💓 LogosPulse started on port 8095
+# Frontend: http://localhost:8096
 ```
 
-### 2. Send Metrics from Your Agent
+### 2. Send Metrics
 
 ```python
-from logosai.utils.pulse_client import send_execution, send_llm_call
+from logosai.utils.pulse_client import send_execution_bg, send_llm_call_bg, send_span_bg
 
-# Record agent execution
-await send_execution(
+# Agent execution (fire-and-forget, non-blocking)
+send_execution_bg(
     agent_id="scheduler_agent",
     query="Show this week's schedule",
     success=True,
     duration_ms=3200,
     agent_name="Scheduler Agent",
+    metadata={"trace_id": "abc-123"},
 )
 
-# Record LLM call
-await send_llm_call(
+# LLM call
+send_llm_call_bg(
     agent_id="scheduler_agent",
     model="gemini-2.5-flash-lite",
     input_tokens=500,
     output_tokens=200,
     duration_ms=800,
 )
+
+# Trace span
+send_span_bg(
+    span_id="span-1",
+    trace_id="abc-123",
+    parent_id="",
+    name="scheduler_agent.process",
+    agent_id="scheduler_agent",
+    status="success",
+    duration_ms=3200,
+)
 ```
 
 ### 3. View Dashboard
 
-Open `http://localhost:8095` in your browser.
+Open `http://localhost:8096` — Dashboard, Traces, Feedback, Learning tabs.
 
 ## API Reference
 
@@ -105,37 +154,23 @@ Open `http://localhost:8095` in your browser.
 |--------|----------|-------------|
 | POST | `/api/v1/ingest/execution` | Record agent execution |
 | POST | `/api/v1/ingest/llm-call` | Record LLM call |
-| POST | `/api/v1/ingest/batch` | Batch ingest (multiple records) |
+| POST | `/api/v1/ingest/span` | Record trace span |
+| POST | `/api/v1/ingest/batch` | Batch ingest |
 
-#### POST /api/v1/ingest/execution
-
-```json
-{
-  "agent_id": "scheduler_agent",
-  "query": "Show this week's schedule",
-  "success": true,
-  "duration_ms": 3200,
-  "agent_name": "Scheduler Agent",
-  "correlation_id": "req-abc123",
-  "user_email": "user@example.com",
-  "token_count": 700,
-  "cost_usd": 0.001
-}
-```
-
-#### POST /api/v1/ingest/llm-call
+#### POST /api/v1/ingest/span
 
 ```json
 {
-  "execution_id": "uuid-of-execution",
-  "agent_id": "scheduler_agent",
-  "model": "gemini-2.5-flash-lite",
-  "provider": "google",
-  "input_tokens": 500,
-  "output_tokens": 200,
-  "duration_ms": 800,
-  "success": true,
-  "prompt_preview": "Show this week's schedule..."
+  "span_id": "uuid",
+  "trace_id": "uuid",
+  "parent_id": "uuid or empty",
+  "name": "weather_agent.process",
+  "agent_id": "weather_agent",
+  "status": "success",
+  "input_text": "서울 날씨",
+  "output_text": "서울의 현재 기온은...",
+  "duration_ms": 5197,
+  "metadata": {"model": "gemini-2.5-flash-lite", "input_tokens": 319}
 }
 ```
 
@@ -143,118 +178,142 @@ Open `http://localhost:8095` in your browser.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/dashboard` | Full dashboard data |
+| GET | `/api/v1/dashboard` | Full dashboard data (summary, agents, costs, trend) |
 | GET | `/api/v1/agents` | Agent-level statistics |
-| GET | `/api/v1/agents/{id}` | Agent detail + traces |
-| GET | `/api/v1/traces` | Execution trace list |
-| GET | `/api/v1/traces/{id}` | Trace detail (LLM call tree) |
+| GET | `/api/v1/traces` | Execution trace list (includes `trace_id`) |
+| GET | `/api/v1/traces/{id}` | Trace detail (LLM calls within execution) |
+| GET | `/api/v1/traces/{trace_id}/tree` | **Span tree** (hierarchical parent-child tree) |
 | GET | `/api/v1/costs` | Cost breakdown by model/agent |
 | GET | `/api/v1/trend` | Hourly trend data |
 
-All dashboard endpoints support `?period=1h|6h|24h|7d|30d` query parameter.
+All endpoints support `?period=1h|6h|24h|7d|30d`.
 
-#### GET /api/v1/dashboard Response
+#### GET /api/v1/traces/{trace_id}/tree
 
 ```json
 {
-  "summary": {
-    "total_calls": 320,
-    "success_rate": 0.91,
-    "avg_duration_ms": 3200,
-    "total_tokens": 125000,
-    "total_cost_usd": 1.45,
-    "active_agents": 15
-  },
-  "agents": [
+  "trace_id": "a5da2563-...",
+  "total_spans": 3,
+  "tree": [
     {
-      "agent_id": "scheduler_agent",
-      "total_calls": 45,
-      "success_rate": 0.93,
-      "avg_duration_ms": 3200,
-      "total_cost_usd": 0.12
+      "id": "f3115069-...",
+      "name": "weather_agent.process",
+      "status": "success",
+      "duration_ms": 5197,
+      "children": [
+        {
+          "name": "llm.gemini-2.5-flash-lite",
+          "duration_ms": 1106,
+          "metadata": {"model": "gemini-2.5-flash-lite", "input_tokens": 319}
+        },
+        {
+          "name": "llm.gemini-2.5-flash-lite",
+          "duration_ms": 3232,
+          "metadata": {"model": "gemini-2.5-flash-lite", "input_tokens": 301}
+        }
+      ]
     }
-  ],
-  "costs": {
-    "total_cost_usd": 1.45,
-    "by_model": [{"model": "gemini-2.5-flash-lite", "cost_usd": 1.04}],
-    "by_agent": [{"agent_id": "scheduler_agent", "cost_usd": 0.12}]
-  },
-  "trend": [
-    {"hour": "2026-04-03T14:00", "calls": 25, "avg_duration_ms": 2800}
   ]
 }
 ```
 
-#### GET /api/v1/traces/{id} Response (Trace Tree)
+### Feedback API
 
-```json
-{
-  "execution": {
-    "agent_id": "desktop_agent",
-    "query": "Find SpaceX docs and email to user",
-    "duration_ms": 45200,
-    "cost_usd": 0.08
-  },
-  "llm_calls": [
-    {"model": "gemini-2.5-flash-lite", "total_tokens": 120, "duration_ms": 800},
-    {"model": "gemini-2.5-flash-lite", "total_tokens": 2400, "duration_ms": 1800}
-  ],
-  "summary": {
-    "total_llm_calls": 2,
-    "total_tokens": 2520,
-    "total_cost_usd": 0.0008,
-    "models_used": ["gemini-2.5-flash-lite"]
-  }
-}
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/feedback` | Submit feedback (thumbs up/down) |
+| GET | `/api/v1/feedback` | Recent feedback list |
+| GET | `/api/v1/feedback/stats` | Per-agent satisfaction stats |
+
+### Learning API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/learning/status` | Loop status (running, cycles, cooldowns) |
+| POST | `/api/v1/learning/trigger` | Manually trigger learning cycle |
+| GET | `/api/v1/learning/history` | Improvement history |
+| GET | `/api/v1/learning/health-report` | Agent health report |
+
+### SSE Stream API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/stream` | Real-time SSE events (new_execution, new_llm_call, new_span) |
 
 ## Project Structure
 
 ```
 logos_pulse/
 ├── app/
-│   ├── main.py              # FastAPI entry point (port 8095)
-│   ├── config.py             # Environment configuration
-│   ├── database.py           # SQLAlchemy async setup
+│   ├── main.py                     # FastAPI (port 8095) + LearningLoop
+│   ├── config.py                   # Environment configuration
+│   ├── database.py                 # SQLAlchemy async setup
 │   ├── models/
-│   │   ├── __init__.py
-│   │   └── observability.py  # AgentExecution, LLMCall, DailyStat models
+│   │   └── observability.py        # AgentExecution, LLMCall, DailyStat,
+│   │                               # TraceSpanModel, UserFeedback
 │   ├── services/
-│   │   └── metrics_collector.py  # Core metrics logic
+│   │   ├── metrics_collector.py    # Core metrics + traces + costs
+│   │   ├── learning_loop.py        # 10-min adaptive learning
+│   │   └── learning_metrics.py     # Health reports + improvement stats
 │   └── routers/
-│       ├── ingest.py         # POST /ingest/* (metrics collection)
-│       └── dashboard.py      # GET /* (dashboard queries)
-├── frontend/                 # Next.js dashboard (coming soon)
+│       ├── ingest.py               # POST /ingest/* (execution, llm-call, span)
+│       ├── dashboard.py            # GET /* (dashboard, traces, tree)
+│       ├── feedback.py             # Feedback collection + stats
+│       ├── learning.py             # Learning loop control
+│       └── stream.py               # SSE real-time events
+├── frontend/                       # Next.js dashboard (port 8096)
+│   └── src/
+│       ├── app/page.tsx            # Main dashboard (4 tabs)
+│       └── components/
+│           ├── KPICards.tsx         # 4 KPI cards
+│           ├── AgentChart.tsx       # Agent success rate bar chart
+│           ├── TrendChart.tsx       # Response time line chart
+│           ├── CostChart.tsx        # Cost by model pie chart
+│           ├── TraceTable.tsx       # Execution trace list
+│           ├── WaterfallView.tsx    # LLM call timeline
+│           ├── SpanTreeView.tsx     # Hierarchical span tree
+│           ├── FeedbackTab.tsx      # Feedback KPIs + per-agent bars
+│           └── LearningTab.tsx      # Learning loop status + health
 ├── scripts/
-│   └── start.sh              # Start script
-├── logs/
+│   └── start.sh
 └── README.md
 ```
 
+## Database
+
+PostgreSQL (`logosus` schema):
+
+| Table | Purpose |
+|-------|---------|
+| `agent_executions` | Agent execution records (query, duration, success, cost, metadata) |
+| `llm_calls` | LLM API call records (model, tokens, latency, cost) |
+| `daily_stats` | Daily aggregated stats per agent |
+| `trace_spans` | Hierarchical spans (trace_id, parent_id, name, duration, metadata) |
+| `user_feedback` | User feedback (agent_id, rating, comment) |
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOGOS_PULSE_DB_URL` | `postgresql+asyncpg://...` | PostgreSQL connection |
+| `LOGOS_PULSE_URL` | `http://localhost:8095` | SDK target URL |
+| `LOGOS_PULSE_LOG_LEVEL` | `INFO` | Logging level |
+| `LOGOS_PULSE_LEARNING_LOOP` | `true` | Enable adaptive learning |
+
 ## SDK Integration
 
-### For ACP Server (Agent Runtime)
+### Automatic (ACP Server)
 
-The ACP server automatically sends metrics via the `pulse_client`:
-
-```python
-# In acp_server/acp_modules/server.py (auto-configured)
-from logosai.utils.pulse_client import send_llm_call_bg
-from logosai.utils.llm_client import LLMClient
-
-# LLM callback — every LLM call is automatically tracked
-LLMClient._metrics_callback = lambda data: send_llm_call_bg(**data)
-```
+ACP server auto-sends all metrics — no configuration needed:
 
 ```python
-# In acp_server/acp_modules/sse_handlers.py (auto-configured)
-from logosai.utils.pulse_client import send_execution_bg
-
-# After each agent execution
-send_execution_bg(agent_id="scheduler_agent", duration_ms=3200, success=True)
+# sse_handlers.py — auto-configured
+# Root span created before agent.process()
+# Execution record sent after completion (with trace_id in metadata)
+# LLM spans auto-created by LLMClient.invoke_messages()
 ```
 
-### For Custom Agents
+### Manual (Custom Agents)
 
 ```python
 from logosai.utils.pulse_client import send_execution, send_llm_call
@@ -263,49 +322,24 @@ class MyAgent:
     async def process(self, query, context=None):
         start = time.time()
         result = await self._do_work(query)
-        duration = (time.time() - start) * 1000
 
         await send_execution(
             agent_id="my_agent",
             query=query,
             success=True,
-            duration_ms=duration,
+            duration_ms=(time.time() - start) * 1000,
         )
         return result
 ```
 
-## Database
+## Related
 
-LogosPulse uses PostgreSQL (`logosus` schema) with 3 tables:
-
-| Table | Purpose | Rows/day (est.) |
-|-------|---------|-----------------|
-| `agent_executions` | Agent execution records | ~500 |
-| `llm_calls` | LLM API call records | ~2000 |
-| `daily_stats` | Daily aggregated stats | ~50 |
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LOGOS_PULSE_DB_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL |
-| `LOGOS_PULSE_URL` | `http://localhost:8095` | LogosPulse server URL (for SDK) |
-| `LOGOS_PULSE_LOG_LEVEL` | `INFO` | Logging level |
-
-## Development
-
-```bash
-# Install dependencies
-pip install fastapi uvicorn sqlalchemy asyncpg aiohttp
-
-# Run in development mode
-cd logos_pulse
-uvicorn app.main:app --reload --port 8095
-
-# Run tests
-cd logosai
-python tests/test_metrics_collector.py
-```
+| Repository | Description |
+|-----------|-------------|
+| [logosai-framework](https://github.com/maior/logosai-framework) | LogosAI SDK (Python agent framework) |
+| [logosai-ontology](https://github.com/maior/logosai-ontology) | Multi-agent orchestration (GNN+RL) |
+| [logosai-api](https://github.com/maior/logosai-api) | FastAPI backend |
+| [logosai-web](https://github.com/maior/logosai-web) | Next.js frontend |
 
 ## License
 
