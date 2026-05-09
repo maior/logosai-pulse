@@ -10,14 +10,28 @@ import { WaterfallView } from '@/components/WaterfallView';
 import { SpanTreeView } from '@/components/SpanTreeView';
 import { FeedbackTab } from '@/components/FeedbackTab';
 import { LearningTab } from '@/components/LearningTab';
+import { ForgeTab } from '@/components/ForgeTab';
+import { TestsTab } from '@/components/TestsTab';
+import { ACPHealthCard } from '@/components/ACPHealthCard';
 
 const API = process.env.NEXT_PUBLIC_PULSE_API || 'http://localhost:8095';
 
-type Tab = 'dashboard' | 'traces' | 'feedback' | 'learning';
+type Tab = 'dashboard' | 'forge' | 'traces' | 'tests' | 'feedback' | 'learning';
+
+const TABS: Array<{ id: Tab; label: string }> = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'forge',     label: 'Forge'     },
+  { id: 'traces',    label: 'Traces'    },
+  { id: 'tests',     label: 'Tests'     },
+  { id: 'feedback',  label: 'Feedback'  },
+  { id: 'learning',  label: 'Learning'  },
+];
+
+const PERIODS = ['1h', '6h', '24h', '7d', '30d'] as const;
 
 export default function Dashboard() {
   const [tab, setTab] = useState<Tab>('dashboard');
-  const [period, setPeriod] = useState('24h');
+  const [period, setPeriod] = useState<typeof PERIODS[number]>('24h');
   const [data, setData] = useState<any>(null);
   const [traces, setTraces] = useState<any[]>([]);
   const [selectedTrace, setSelectedTrace] = useState<string | null>(null);
@@ -25,6 +39,7 @@ export default function Dashboard() {
   const [traceDetail, setTraceDetail] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [liveCount, setLiveCount] = useState(0);
+  const [connected, setConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -47,44 +62,39 @@ export default function Dashboard() {
     const es = new EventSource(`${API}/api/v1/stream`);
     eventSourceRef.current = es;
 
+    es.onopen = () => setConnected(true);
+
     es.addEventListener('new_execution', (e) => {
-      const data = JSON.parse(e.data);
+      const d = JSON.parse(e.data);
       setTraces(prev => [{
-        id: data.execution_id,
-        agent_id: data.agent_id,
-        agent_name: data.agent_name || data.agent_id,
-        query: data.query,
-        success: data.success,
-        duration_ms: data.duration_ms,
+        id: d.execution_id,
+        agent_id: d.agent_id,
+        agent_name: d.agent_name || d.agent_id,
+        query: d.query,
+        success: d.success,
+        duration_ms: d.duration_ms,
         token_count: 0,
         cost_usd: 0,
         created_at: new Date().toISOString(),
-        trace_id: data.metadata?.trace_id || '',
+        trace_id: d.metadata?.trace_id || '',
       }, ...prev].slice(0, 50));
       setLiveCount(c => c + 1);
-      // Refresh dashboard data
       fetchData();
     });
 
-    es.addEventListener('new_llm_call', () => {
-      // Just trigger a refresh for cost/token updates
-      fetchData();
-    });
+    es.addEventListener('new_llm_call', () => fetchData());
 
     es.onerror = () => {
-      // Reconnect after 5s
+      setConnected(false);
       setTimeout(() => {
         if (eventSourceRef.current) eventSourceRef.current.close();
-        // Will reconnect on next render
       }, 5000);
     };
 
     return () => es.close();
   }, [fetchData]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleTraceSelect = useCallback((id: string | null) => {
     setSelectedTrace(id);
@@ -106,7 +116,10 @@ export default function Dashboard() {
 
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <div className="text-slate-400 text-lg">Loading LogosPulse...</div>
+      <div className="flex items-center gap-3 text-slate-500 text-sm">
+        <div className="w-4 h-4 border-2 border-slate-700 border-t-indigo-400 rounded-full animate-spin" />
+        Loading observability data…
+      </div>
     </div>
   );
 
@@ -115,56 +128,56 @@ export default function Dashboard() {
   const costs = data?.costs || {};
   const trend = data?.trend || [];
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'traces', label: 'Traces', icon: '🔍' },
-    { id: 'feedback', label: 'Feedback', icon: '👍' },
-    { id: 'learning', label: 'Learning', icon: '🧠' },
-  ];
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-slate-950 text-slate-100 antialiased" style={{ fontFeatureSettings: '"cv11", "ss01", "ss03"' }}>
       {/* Header */}
-      <header className="border-b border-slate-800 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">💓</span>
-          <h1 className="text-xl font-semibold bg-gradient-to-r from-rose-400 to-purple-400 bg-clip-text text-transparent">
-            LogosPulse
-          </h1>
-          {liveCount > 0 && (
-            <span className="flex items-center gap-1 text-xs text-green-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              Live
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {/* Tabs */}
-          <div className="flex gap-1 bg-slate-900/50 rounded-lg p-0.5">
-            {tabs.map(t => (
+      <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur supports-[backdrop-filter]:bg-slate-950/60">
+        <div className="px-6 py-3 flex items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_12px_rgba(129,140,248,0.6)]" />
+              <h1 className="text-sm font-semibold tracking-tight text-slate-100">LogosPulse</h1>
+              <span className="text-[10px] text-slate-500 font-mono uppercase">Observability</span>
+            </div>
+            {connected && (
+              <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium pl-3 border-l border-slate-800">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                </span>
+                LIVE {liveCount > 0 && <span className="text-slate-500">· {liveCount}</span>}
+              </span>
+            )}
+          </div>
+
+          <nav className="flex gap-0">
+            {TABS.map(t => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                className={`relative px-3.5 py-1.5 text-xs font-medium transition-colors ${
                   tab === t.id
-                    ? 'bg-slate-800 text-slate-100'
+                    ? 'text-slate-100'
                     : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
-                {t.icon} {t.label}
+                {t.label}
+                {tab === t.id && (
+                  <span className="absolute -bottom-3 left-3 right-3 h-px bg-indigo-400" />
+                )}
               </button>
             ))}
-          </div>
-          {/* Period */}
-          <div className="flex gap-1">
-            {['1h', '6h', '24h', '7d', '30d'].map(p => (
+          </nav>
+
+          <div className="flex items-center gap-1 bg-slate-900/50 border border-slate-800 rounded-md p-0.5">
+            {PERIODS.map(p => (
               <button
                 key={p}
                 onClick={() => { setPeriod(p); setLoading(true); }}
-                className={`px-2 py-1 text-[10px] rounded transition-colors ${
+                className={`px-2.5 py-1 text-[10px] font-medium tabular-nums rounded transition-colors ${
                   period === p
-                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                    : 'text-slate-600 hover:text-slate-400'
+                    ? 'bg-slate-800 text-slate-100'
+                    : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
                 {p}
@@ -174,23 +187,24 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="p-6 max-w-7xl mx-auto space-y-6">
-        {/* Dashboard Tab */}
+      <main className="px-6 py-6 max-w-[1600px] mx-auto space-y-5">
         {tab === 'dashboard' && (
           <>
             <KPICards summary={summary} />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <div className="lg:col-span-2"><AgentChart agents={agents} /></div>
               <CostChart costs={costs} />
             </div>
+            <ACPHealthCard />
             <TrendChart trend={trend} />
           </>
         )}
 
-        {/* Traces Tab */}
+        {tab === 'forge' && <ForgeTab period={period} />}
+
         {tab === 'traces' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <TraceTable traces={traces} selectedId={selectedTrace} onSelect={handleTraceSelect} />
               <SpanTreeView executionId={selectedTraceId} />
             </div>
@@ -198,12 +212,16 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Feedback Tab */}
+        {tab === 'tests' && <TestsTab />}
         {tab === 'feedback' && <FeedbackTab period={period} />}
-
-        {/* Learning Tab */}
         {tab === 'learning' && <LearningTab />}
       </main>
+
+      {/* Subtle footer */}
+      <footer className="px-6 py-4 mt-8 border-t border-slate-800/50 text-[10px] text-slate-600 font-mono flex items-center justify-between max-w-[1600px] mx-auto">
+        <span>logos_pulse · v0.1.0</span>
+        <span>{new Date().toLocaleString('en-US', { hour12: false })}</span>
+      </footer>
     </div>
   );
 }

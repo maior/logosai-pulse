@@ -66,9 +66,15 @@ class MetricsCollector:
         token_count: int = 0,
         cost_usd: float = 0.0,
         metadata: Optional[Dict] = None,
+        execution_id: Optional[str] = None,  # N1 (2026-05-09): client 가 명시한 UUID
     ) -> str:
-        """에이전트 실행 기록. Returns execution_id."""
-        exec_id = str(uuid4())
+        """에이전트 실행 기록. Returns execution_id.
+
+        N1: client 가 execution_id (e.g., span.trace_id) 를 명시하면 그 UUID 사용
+        → /traces/{execution_id}/tree 가 같은 trace_id 의 spans 조회 가능.
+        None 이면 자동 UUID (legacy).
+        """
+        exec_id = execution_id or str(uuid4())
         try:
             async with self._db_factory() as db:
                 execution = AgentExecution(

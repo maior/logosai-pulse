@@ -39,11 +39,14 @@ function SpanNode({ span, totalMs, depth = 0 }: { span: Span; totalMs: number; d
   const isLLM = span.name.startsWith('llm.');
   const isAgent = span.name.includes('.process');
 
+  const isForge = span.name.startsWith('forge.');
   const barColor = span.status === 'error'
-    ? 'bg-red-500/30 border-red-500/40'
-    : isLLM
-      ? 'bg-blue-500/25 border-blue-500/35'
-      : 'bg-purple-500/25 border-purple-500/35';
+    ? 'bg-rose-500/25 border-rose-500/40'
+    : isForge
+      ? 'bg-amber-500/20 border-amber-500/40'
+      : isLLM
+        ? 'bg-cyan-500/20 border-cyan-500/35'
+        : 'bg-indigo-500/20 border-indigo-500/35';
 
   const formatDuration = (ms: number) => {
     if (!ms) return '0ms';
@@ -74,8 +77,8 @@ function SpanNode({ span, totalMs, depth = 0 }: { span: Span; totalMs: number; d
         >
           <div className="flex items-center gap-2 h-7">
             {/* Name */}
-            <span className={`text-[11px] font-medium truncate flex-shrink-0 max-w-[180px] ${
-              isAgent ? 'text-purple-300' : isLLM ? 'text-blue-300' : 'text-slate-300'
+            <span className={`text-[11px] font-medium truncate flex-shrink-0 max-w-[180px] font-mono ${
+              isForge ? 'text-amber-300' : isAgent ? 'text-indigo-300' : isLLM ? 'text-cyan-300' : 'text-slate-300'
             }`}>
               {span.name}
             </span>
@@ -103,12 +106,12 @@ function SpanNode({ span, totalMs, depth = 0 }: { span: Span; totalMs: number; d
             </div>
 
             {/* Status badge */}
-            <span className={`text-[9px] px-1 py-0.5 rounded flex-shrink-0 ${
+            <span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 font-medium ${
               span.status === 'success'
-                ? 'bg-green-500/10 text-green-400'
+                ? 'bg-emerald-500/10 text-emerald-300'
                 : span.status === 'error'
-                  ? 'bg-red-500/10 text-red-400'
-                  : 'bg-yellow-500/10 text-yellow-400'
+                  ? 'bg-rose-500/10 text-rose-300'
+                  : 'bg-amber-500/10 text-amber-300'
             }`}>
               {span.status}
             </span>
@@ -189,8 +192,8 @@ export function SpanTreeView({ executionId }: Props) {
 
   if (!executionId) {
     return (
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Span Tree</h3>
+      <div className="border border-slate-800 bg-slate-900/30 rounded-lg p-4">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-3">Span Tree</div>
         <div className="h-64 flex items-center justify-center text-slate-600 text-sm">
           Select a trace to view the span tree
         </div>
@@ -200,8 +203,8 @@ export function SpanTreeView({ executionId }: Props) {
 
   if (loading) {
     return (
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Span Tree</h3>
+      <div className="border border-slate-800 bg-slate-900/30 rounded-lg p-4">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-3">Span Tree</div>
         <div className="h-32 flex items-center justify-center text-slate-500 text-sm">
           Loading spans...
         </div>
@@ -211,8 +214,8 @@ export function SpanTreeView({ executionId }: Props) {
 
   if (!treeData || treeData.total_spans === 0) {
     return (
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Span Tree</h3>
+      <div className="border border-slate-800 bg-slate-900/30 rounded-lg p-4">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-3">Span Tree</div>
         <div className="h-32 flex items-center justify-center text-slate-600 text-sm">
           No span data for this trace
         </div>
@@ -223,32 +226,37 @@ export function SpanTreeView({ executionId }: Props) {
   const rootDuration = treeData.tree[0]?.duration_ms || 1;
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 space-y-3">
+    <div className="border border-slate-800 bg-slate-900/30 rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-slate-300">Span Tree</h3>
-        <div className="flex items-center gap-3 text-[10px] text-slate-500">
+      <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+        <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Span Tree</h3>
+        <div className="flex items-center gap-3 text-[10px] text-slate-500 font-mono tabular-nums">
           <span>{treeData.total_spans} spans</span>
-          <span>{(rootDuration / 1000).toFixed(1)}s total</span>
-          <span className="text-slate-600">trace: {treeData.trace_id.slice(0, 8)}</span>
+          <span className="text-slate-600">·</span>
+          <span>{(rootDuration / 1000).toFixed(2)}s</span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-600">{treeData.trace_id.slice(0, 8)}</span>
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex gap-3 text-[9px] text-slate-500">
-        <span className="flex items-center gap-1">
-          <span className="w-2.5 h-2.5 rounded bg-purple-500/30 border border-purple-500/40" /> Agent
+      <div className="px-4 py-2 border-b border-slate-800 flex gap-4 text-[9px] text-slate-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-indigo-500/30 border border-indigo-500/40" /> Agent
         </span>
-        <span className="flex items-center gap-1">
-          <span className="w-2.5 h-2.5 rounded bg-blue-500/30 border border-blue-500/40" /> LLM Call
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-cyan-500/30 border border-cyan-500/40" /> LLM
         </span>
-        <span className="flex items-center gap-1">
-          <span className="w-2.5 h-2.5 rounded bg-red-500/30 border border-red-500/40" /> Error
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-amber-500/30 border border-amber-500/40" /> FORGE
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-rose-500/30 border border-rose-500/40" /> Error
         </span>
       </div>
 
       {/* Tree */}
-      <div className="space-y-0.5 overflow-auto max-h-[500px]">
+      <div className="space-y-0.5 overflow-auto max-h-[500px] p-3">
         {treeData.tree.map(span => (
           <SpanNode key={span.id} span={span} totalMs={rootDuration} />
         ))}

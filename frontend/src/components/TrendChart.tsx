@@ -17,22 +17,34 @@ export function TrendChart({ trend }: { trend: TrendPoint[] }) {
   }));
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-      <h3 className="text-sm font-medium text-slate-300 mb-4">Response Time Trend</h3>
-      {data.length === 0 ? (
-        <div className="h-48 flex items-center justify-center text-slate-600 text-sm">No data</div>
-      ) : (
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} />
-            <YAxis tick={{ fill: '#64748b', fontSize: 10 }} />
-            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
-            <Line type="monotone" dataKey="duration" stroke="#a78bfa" strokeWidth={2} dot={false} name="Avg Duration (ms)" />
-            <Line type="monotone" dataKey="calls" stroke="#38bdf8" strokeWidth={2} dot={false} name="Calls" />
-          </LineChart>
-        </ResponsiveContainer>
-      )}
+    <div className="border border-slate-800 bg-slate-900/30 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+        <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Response Time & Volume</h3>
+        <div className="flex items-center gap-3 text-[10px]">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-px bg-indigo-400" /><span className="text-slate-400">Duration</span></span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-px bg-cyan-400" /><span className="text-slate-400">Calls</span></span>
+        </div>
+      </div>
+      <div className="p-4">
+        {data.length === 0 ? (
+          <div className="h-48 flex items-center justify-center text-slate-600 text-xs">No data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+              <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#1e293b' }} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#1e293b' }} tickLine={false} />
+              <Tooltip
+                cursor={{ stroke: '#334155', strokeDasharray: '3 3' }}
+                contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11, padding: '6px 10px' }}
+                labelStyle={{ color: '#cbd5e1', fontSize: 11 }}
+              />
+              <Line type="monotone" dataKey="duration" stroke="#818cf8" strokeWidth={1.5} dot={false} name="Duration (ms)" />
+              <Line type="monotone" dataKey="calls" stroke="#22d3ee" strokeWidth={1.5} dot={false} name="Calls" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
     </div>
   );
 }

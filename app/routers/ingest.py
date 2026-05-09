@@ -29,6 +29,7 @@ class ExecutionRecord(BaseModel):
     token_count: int = 0
     cost_usd: float = 0.0
     metadata: Optional[Dict[str, Any]] = None
+    execution_id: Optional[str] = None  # N1 (2026-05-09): 클라이언트가 trace_id 와 link 위해 명시 가능
 
 
 class LLMCallRecord(BaseModel):
