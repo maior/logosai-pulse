@@ -11,15 +11,18 @@ import { SpanTreeView } from '@/components/SpanTreeView';
 import { FeedbackTab } from '@/components/FeedbackTab';
 import { LearningTab } from '@/components/LearningTab';
 import { ForgeTab } from '@/components/ForgeTab';
+import { JourneyTab } from '@/components/JourneyTab';
+import { SatisfactionCard, TopErrorAgentsCard, ConversationsCard } from '@/components/InsightCards';
 import { TestsTab } from '@/components/TestsTab';
 import { ACPHealthCard } from '@/components/ACPHealthCard';
 
 const API = process.env.NEXT_PUBLIC_PULSE_API || 'http://localhost:8095';
 
-type Tab = 'dashboard' | 'forge' | 'traces' | 'tests' | 'feedback' | 'learning';
+type Tab = 'dashboard' | 'journey' | 'forge' | 'traces' | 'tests' | 'feedback' | 'learning';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'journey',   label: 'Journey'   },
   { id: 'forge',     label: 'Forge'     },
   { id: 'traces',    label: 'Traces'    },
   { id: 'tests',     label: 'Tests'     },
@@ -195,11 +198,17 @@ export default function Dashboard() {
               <div className="lg:col-span-2"><AgentChart agents={agents} /></div>
               <CostChart costs={costs} />
             </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <SatisfactionCard period={period} />
+              <TopErrorAgentsCard agents={agents} />
+              <ConversationsCard />
+            </div>
             <ACPHealthCard />
             <TrendChart trend={trend} />
           </>
         )}
 
+        {tab === 'journey' && <JourneyTab period={period} />}
         {tab === 'forge' && <ForgeTab period={period} />}
 
         {tab === 'traces' && (

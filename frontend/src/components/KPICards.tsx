@@ -27,12 +27,12 @@ export function KPICards({ summary }: Props) {
     {
       label: 'Avg Response',
       value: fmtDuration(summary.avg_duration_ms ?? 0),
-      sub: 'p50 latency',
+      sub: 'mean latency',  // 실제 집계는 평균 — p50으로 오표기하지 않는다
     },
     {
       label: 'Total Cost',
       value: `$${(summary.total_cost_usd ?? 0).toFixed(4)}`,
-      sub: 'cumulative',
+      sub: 'period total',
     },
   ];
 

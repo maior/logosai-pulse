@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  // 좌하단 개발자 모드(Dev Tools) 플로팅 아이콘 제거
+  devIndicators: false,
 };
 
 export default nextConfig;

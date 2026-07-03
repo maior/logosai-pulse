@@ -124,6 +124,29 @@ class TraceSpanModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now())
 
 
+class AgentConversation(Base):
+    """에이전트 간 대화 로그 — 스팬(운영 trace)과 분리된 1급 비즈니스 기록.
+
+    스팬은 200자 truncate + 취소 시 유실 가능하지만, 대화는 전문(4000자) 보존
+    + 취소(cancelled)여도 기록된다. Journey conversations의 우선 소스.
+    """
+    __tablename__ = "agent_conversations"
+    __table_args__ = {"schema": "logosus"}
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    trace_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    caller: Mapped[str] = mapped_column(String(255), index=True)
+    callee: Mapped[str] = mapped_column(String(255), index=True)
+    channel: Mapped[str] = mapped_column(String(50), default="call_agent")
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="success")
+    duration_ms: Mapped[float] = mapped_column(Float, default=0)
+    started_at: Mapped["datetime | None"] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped["datetime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class UserFeedback(Base):
     """사용자 피드백 (👍/👎)."""
     __tablename__ = "user_feedback"

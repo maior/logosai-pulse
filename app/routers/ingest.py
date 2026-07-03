@@ -92,6 +92,9 @@ class SpanRecord(BaseModel):
     output_text: str = ""
     duration_ms: float = 0
     metadata: Optional[Dict[str, Any]] = None
+    # 실측 시각 (epoch sec) — 여정 타임라인/워터폴 정합. 미전송 시 기존처럼 합성.
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
 
 
 @router.post("/span")
@@ -103,17 +106,28 @@ async def ingest_span(record: SpanRecord):
         from app.models.observability import TraceSpanModel
         async with get_db_context() as db:
             now = datetime.now(timezone.utc)
+            _parent = record.parent_id or None
+            if _parent:
+                try:
+                    __import__('uuid').UUID(_parent)
+                except (ValueError, AttributeError):
+                    # W3C 16-hex 등 비UUID parent → 링크 대신 메타데이터로 보존
+                    record.metadata = {**(record.metadata or {}), "w3c_parent": _parent}
+                    _parent = None
             span = TraceSpanModel(
                 id=record.span_id or str(__import__('uuid').uuid4()),
                 trace_id=record.trace_id,
-                parent_id=record.parent_id or None,
+                parent_id=_parent,
                 name=record.name,
                 agent_id=record.agent_id or None,
                 status=record.status,
                 input_text=record.input_text[:200] if record.input_text else None,
                 output_text=record.output_text[:200] if record.output_text else None,
-                start_time=now - timedelta(milliseconds=record.duration_ms),
-                end_time=now,
+                start_time=(datetime.fromtimestamp(record.start_time, tz=timezone.utc)
+                            if record.start_time
+                            else now - timedelta(milliseconds=record.duration_ms)),
+                end_time=(datetime.fromtimestamp(record.end_time, tz=timezone.utc)
+                          if record.end_time else now),
                 duration_ms=record.duration_ms,
                 span_metadata=record.metadata,
             )
@@ -126,6 +140,54 @@ async def ingest_span(record: SpanRecord):
         return {"status": "ok", "span_id": span.id}
     except Exception as e:
         logger.warning(f"Span ingest failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+class ConversationRecord(BaseModel):
+    trace_id: str = ""
+    session_id: str = ""
+    caller: str = ""
+    callee: str = ""
+    channel: str = "call_agent"
+    query: str = ""
+    answer: str = ""
+    status: str = "success"
+    duration_ms: float = 0
+    started_at: Optional[float] = None
+
+
+@router.post("/conversation")
+async def ingest_conversation(record: ConversationRecord):
+    """에이전트 간 대화 로그 수집 (스팬과 분리 — 전문 보존, 취소돼도 기록)."""
+    from datetime import datetime, timezone
+    import uuid as _uuid
+    try:
+        from app.database import get_db_context
+        from app.models.observability import AgentConversation
+        _trace = record.trace_id or None
+        if _trace:
+            try:
+                _uuid.UUID(_trace)
+            except ValueError:
+                _trace = None
+        async with get_db_context() as db:
+            conv = AgentConversation(
+                id=str(_uuid.uuid4()),
+                trace_id=_trace,
+                session_id=record.session_id or None,
+                caller=record.caller, callee=record.callee, channel=record.channel,
+                query=record.query[:4000] or None, answer=record.answer[:4000] or None,
+                status=record.status, duration_ms=record.duration_ms,
+                started_at=(datetime.fromtimestamp(record.started_at, tz=timezone.utc)
+                            if record.started_at else datetime.now(timezone.utc)),
+            )
+            db.add(conv)
+            await db.commit()
+        from app.routers.stream import broadcast_event
+        broadcast_event("new_conversation", record.model_dump())
+        return {"status": "ok", "conversation_id": conv.id}
+    except Exception as e:
+        logger.warning(f"Conversation ingest failed: {e}")
         return {"status": "error", "error": str(e)}
 
 
