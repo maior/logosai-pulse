@@ -17,7 +17,25 @@ def parse_fed_agent(agent_id: str):
     return (peer, agent) if peer and agent else None
 
 
-def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _hour_key(iso: str) -> str:
+    return iso[:13] if len(iso) >= 13 else iso
+
+
+def _continuous_hours(now_utc: str, window_hours: int) -> List[str]:
+    """now(UTC) 기준 window_hours 전까지 시간별 키 목록 (연속, 오래된 것부터)."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        base = datetime.fromisoformat(now_utc.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return []
+    base = base.replace(minute=0, second=0, microsecond=0)
+    return [ (base - timedelta(hours=window_hours - 1 - i)).strftime("%Y-%m-%dT%H")
+             for i in range(window_hours) ]
+
+
+def build_federation_live(spans: List[Dict[str, Any]],
+                          now_utc: str = None,
+                          window_hours: int = 24) -> Dict[str, Any]:
     """federation span 목록 → {institutions, transactions, timeline, totals}.
 
     전략 모니터링용 확장 (2026-07-03): 기관별 에이전트 분해(agents) +
@@ -26,6 +44,9 @@ def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
     Args:
         spans: dict 목록 — agent_id, status, duration_ms, start_time(iso str),
                output_preview(선택). 최신순 정렬 가정하지 않음 (여기서 정렬).
+        now_utc: 주입 시 timeline 을 now 기준 window_hours 연속 버킷(0 채움)으로
+               반환 — 추이 차트가 빈 구간도 보이도록. None 이면 데이터 버킷만.
+        window_hours: 연속 timeline 윈도우 (시간).
     """
     institutions: Dict[str, Dict[str, Any]] = {}
     transactions: List[Dict[str, Any]] = []
@@ -83,10 +104,18 @@ def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
         })
     inst_list.sort(key=lambda i: i["calls"], reverse=True)
 
-    timeline_list = [
-        {"hour": h, "success": v["success"], "error": v["error"]}
-        for h, v in sorted(timeline.items())
-    ]
+    if now_utc:
+        # 연속 버킷: 윈도우 내 모든 시간을 0 채움 (추이 연속성)
+        timeline_list = [
+            {"hour": h, "success": timeline.get(h, {}).get("success", 0),
+             "error": timeline.get(h, {}).get("error", 0)}
+            for h in _continuous_hours(now_utc, window_hours)
+        ]
+    else:
+        timeline_list = [
+            {"hour": h, "success": v["success"], "error": v["error"]}
+            for h, v in sorted(timeline.items())
+        ]
 
     return {
         "institutions": inst_list,

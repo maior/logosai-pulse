@@ -77,6 +77,21 @@ def test_timeline_buckets():
     print("PASS timeline")
 
 
+def test_timeline_continuous_fills_gaps():
+    """now 주입 시 timeline 은 윈도우 내 모든 시간 버킷을 0 포함 연속으로 반환."""
+    spans = [
+        {"agent_id": "fed.instA.math_agent", "status": "success", "duration_ms": 100,
+         "start_time": "2026-07-03T12:30:00+00:00"},
+    ]
+    # now=15시 UTC, 윈도우 4시간 → 12,13,14,15 (4버킷), 데이터는 12시에만
+    out = build_federation_live(spans, now_utc="2026-07-03T15:00:00+00:00", window_hours=4)
+    tl = out["timeline"]
+    hours = [b["hour"] for b in tl]
+    assert hours == ["2026-07-03T12", "2026-07-03T13", "2026-07-03T14", "2026-07-03T15"], hours
+    assert tl[0]["success"] == 1 and tl[1]["success"] == 0  # 빈 시간대는 0
+    print("PASS timeline-continuous")
+
+
 def test_empty_input():
     out = build_federation_live([])
     assert out["totals"] == {"institutions": 0, "transactions": 0, "success": 0}
@@ -87,7 +102,7 @@ if __name__ == "__main__":
     fails = []
     for fn in [test_parse_fed_agent, test_institutions_aggregated,
                test_transactions_latest_first, test_institution_agent_breakdown,
-               test_timeline_buckets, test_empty_input]:
+               test_timeline_buckets, test_timeline_continuous_fills_gaps, test_empty_input]:
         try:
             fn()
         except Exception as e:
