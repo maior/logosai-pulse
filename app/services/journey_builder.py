@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 STAGE_ORDER = [
     "ingress", "plan", "route", "agent",
     "harness_react", "harness_tool", "harness_plan",
-    "a2a_call", "llm", "external", "integrate",
+    "a2a_call", "federation", "llm", "external", "integrate",
 ]
 
 STAGE_LABELS = {
@@ -25,6 +25,7 @@ STAGE_LABELS = {
     "harness_tool": "도구 사용",
     "harness_plan": "계획 수립",
     "a2a_call": "에이전트 간 대화",
+    "federation": "기관 간 연합 위임",
     "llm": "LLM 호출",
     "external": "외부 시스템",
     "integrate": "결과 통합",

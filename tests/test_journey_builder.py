@@ -126,6 +126,19 @@ def test_empty_and_legacy_spans_do_not_crash():
     assert j["counts"]["spans"] == 1
 
 
+def test_federation_stage_recognized():
+    """연합 위임 span (stage=federation) 이 여정 스테이지로 인식·라벨링돼야 한다."""
+    spans = [
+        {"span_id": "s1", "parent_span_id": None, "name": "federation.delegate fed.govB.registry_lookup_agent",
+         "agent_id": "fed.govB.registry_lookup_agent", "duration_ms": 1200, "success": True,
+         "metadata": {"stage": "federation"}, "start_time": "2026-07-03T10:00:00Z"},
+    ]
+    j = build_journey(spans, {"id": "e1"})
+    stages = {st["stage"]: st for st in j["stages"]}
+    assert "federation" in stages, f"federation 스테이지 미인식: {list(stages)}"
+    assert "연합" in stages["federation"]["label"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
