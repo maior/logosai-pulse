@@ -29,7 +29,10 @@ interface Institution {
   peer_id: string; calls: number; success_rate: number; error_count: number;
   avg_ms: number; last_seen: string; agents: AgentBreak[];
 }
-interface Tx { ts: string; peer_id: string; agent_id: string; status: string; duration_ms: number; preview: string; }
+interface Tx {
+  ts: string; peer_id: string; agent_id: string; status: string; duration_ms: number;
+  input?: string; detail?: string; preview?: string;
+}
 interface TimelineBucket { hour: string; success: number; error: number; }
 interface LiveData {
   institutions: Institution[]; transactions: Tx[]; timeline: TimelineBucket[];
@@ -265,34 +268,74 @@ export function FederationTab() {
         </div>
       </div>
 
-      {/* 트랜잭션 로그 */}
-      <div className="border border-slate-800 bg-slate-900/30 rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">트랜잭션 로그 (실시간 · 8초 갱신)</h3>
-          <span className="text-[10px] text-slate-600">최근 {Math.min(transactions.length, 50)}건</span>
-        </div>
-        <div className="px-4 pt-2 grid grid-cols-[72px_minmax(0,0.7fr)_minmax(0,1.3fr)_60px_60px] gap-2 text-[9px] uppercase tracking-wider text-slate-600">
-          <span>Time</span><span>기관</span><span>Agent</span>
-          <span className="text-right">소요</span><span className="text-right">상태</span>
-        </div>
-        <div className="px-4 pb-3 pt-1 divide-y divide-slate-800/40 max-h-96 overflow-y-auto">
-          {transactions.map((t, i) => {
-            const color = PEER_COLORS[peerIdx(institutions, t.peer_id) % PEER_COLORS.length];
-            return (
-              <div key={i} title={t.preview}
-                   className="grid grid-cols-[72px_minmax(0,0.7fr)_minmax(0,1.3fr)_60px_60px] gap-2 items-center py-[7px] text-[11px] hover:bg-slate-800/30 -mx-1 px-1 rounded-sm">
-                <span className="tabular-nums text-slate-500">{fmtTime(t.ts)}</span>
+      {/* 트랜잭션 로그 — 행 클릭 시 요청·결과/원인 확장 */}
+      <TransactionLog transactions={transactions} institutions={institutions} />
+    </div>
+  );
+}
+
+function TransactionLog({ transactions, institutions }: { transactions: Tx[]; institutions: Institution[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <div className="border border-slate-800 bg-slate-900/30 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+        <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">트랜잭션 로그 (실시간 · 8초 갱신 · 행 클릭 시 상세)</h3>
+        <span className="text-[10px] text-slate-600">최근 {Math.min(transactions.length, 50)}건</span>
+      </div>
+      <div className="px-4 pt-2 grid grid-cols-[72px_minmax(0,0.7fr)_minmax(0,1.3fr)_60px_60px] gap-2 text-[9px] uppercase tracking-wider text-slate-600">
+        <span>Time</span><span>기관</span><span>Agent</span>
+        <span className="text-right">소요</span><span className="text-right">상태</span>
+      </div>
+      <div className="px-4 pb-3 pt-1 divide-y divide-slate-800/40 max-h-[28rem] overflow-y-auto">
+        {transactions.map((t, i) => {
+          const color = PEER_COLORS[peerIdx(institutions, t.peer_id) % PEER_COLORS.length];
+          const isErr = t.status === 'error';
+          const expanded = open === i;
+          return (
+            <div key={i}>
+              <div onClick={() => setOpen(expanded ? null : i)}
+                   className="grid grid-cols-[72px_minmax(0,0.7fr)_minmax(0,1.3fr)_60px_60px] gap-2 items-center py-[7px] text-[11px] hover:bg-slate-800/30 -mx-1 px-1 rounded-sm cursor-pointer">
+                <span className="tabular-nums text-slate-500 flex items-center gap-1">
+                  <span className={`text-slate-600 transition-transform ${expanded ? 'rotate-90' : ''}`}>›</span>
+                  {fmtTime(t.ts)}
+                </span>
                 <span className="flex items-center gap-1.5 min-w-0">
                   <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ background: color }} />
                   <span className="font-mono text-slate-300 truncate">{t.peer_id}</span>
                 </span>
                 <span className="font-mono text-slate-400 truncate">{t.agent_id}</span>
                 <span className="tabular-nums text-right text-slate-500">{fmtMs(t.duration_ms)}</span>
-                <span className={`text-right ${TX_STATUS[t.status] || 'text-slate-400'}`}>{t.status}</span>
+                <span className={`text-right ${TX_STATUS[t.status] || 'text-slate-400'}`}>
+                  {isErr ? '✕ 실패' : t.status === 'success' ? '✓ 성공' : t.status}
+                </span>
               </div>
-            );
-          })}
-        </div>
+              {/* 실패 건은 접힌 상태에서도 원인 한 줄 노출 */}
+              {isErr && !expanded && t.detail && (
+                <div className="pl-[80px] pb-1.5 -mt-0.5 text-[10.5px] text-rose-300/90 truncate" title={t.detail}>
+                  ⚠ {t.detail}
+                </div>
+              )}
+              {expanded && (
+                <div className="pl-[80px] pr-2 pb-3 pt-0.5 space-y-2">
+                  {t.input && (
+                    <div>
+                      <div className="text-[9px] uppercase tracking-wider text-slate-600 mb-0.5">요청</div>
+                      <div className="text-[11px] text-slate-300 bg-slate-800/40 rounded px-2 py-1.5 border border-slate-700/40">{t.input}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider text-slate-600 mb-0.5">{isErr ? '실패 원인' : '결과'}</div>
+                    <div className={`text-[11px] rounded px-2 py-1.5 border ${isErr
+                        ? 'text-rose-300 bg-rose-500/10 border-rose-500/30'
+                        : 'text-slate-300 bg-slate-800/40 border-slate-700/40'}`}>
+                      {t.detail || (isErr ? '원인 정보 없음' : '결과 요약 없음')}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

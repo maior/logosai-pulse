@@ -77,6 +77,26 @@ def test_timeline_buckets():
     print("PASS timeline")
 
 
+def test_transaction_has_request_and_detail():
+    """트랜잭션에 요청(input)과 결과/원인(detail) — 성공은 결과, 실패는 에러 원인."""
+    spans = [
+        {"agent_id": "fed.instB.weather_agent", "status": "success", "duration_ms": 100,
+         "start_time": "2026-07-03T12:00:00", "input_preview": "서울 날씨 알려줘",
+         "output_preview": "서울 25도 맑음"},
+        {"agent_id": "fed.instC.x_agent", "status": "error", "duration_ms": 50,
+         "start_time": "2026-07-03T12:01:00", "input_preview": "환율 계산",
+         "output_preview": "peer 'instC' circuit open"},
+    ]
+    out = build_federation_live(spans)
+    tx = {t["agent_id"]: t for t in out["transactions"]}
+    assert tx["weather_agent"]["input"] == "서울 날씨 알려줘"
+    assert tx["weather_agent"]["detail"] == "서울 25도 맑음"
+    # 실패 건: detail 에 에러 원인
+    assert "circuit open" in tx["x_agent"]["detail"]
+    assert tx["x_agent"]["status"] == "error"
+    print("PASS tx-request-detail")
+
+
 def test_timeline_continuous_fills_gaps():
     """now 주입 시 timeline 은 윈도우 내 모든 시간 버킷을 0 포함 연속으로 반환."""
     spans = [
@@ -102,7 +122,7 @@ if __name__ == "__main__":
     fails = []
     for fn in [test_parse_fed_agent, test_institutions_aggregated,
                test_transactions_latest_first, test_institution_agent_breakdown,
-               test_timeline_buckets, test_timeline_continuous_fills_gaps, test_empty_input]:
+               test_timeline_buckets, test_transaction_has_request_and_detail, test_timeline_continuous_fills_gaps, test_empty_input]:
         try:
             fn()
         except Exception as e:

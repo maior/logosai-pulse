@@ -82,7 +82,10 @@ def build_federation_live(spans: List[Dict[str, Any]],
             "agent_id": agent,
             "status": s.get("status", ""),
             "duration_ms": int(s.get("duration_ms") or 0),
-            "preview": str(s.get("output_preview", "") or "")[:80],
+            # 요청(무엇을 위임했나) + 결과/원인(성공=응답 요약, 실패=에러 원인)
+            "input": str(s.get("input_preview", "") or "")[:160],
+            "detail": str(s.get("output_preview", "") or "")[:200],
+            "preview": str(s.get("output_preview", "") or "")[:80],  # 하위호환(hover)
         })
 
     transactions.sort(key=lambda t: t["ts"], reverse=True)

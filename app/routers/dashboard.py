@@ -305,7 +305,8 @@ async def federation_live(hours: int = 24):
             "status": r.status,
             "duration_ms": r.duration_ms,
             "start_time": r.start_time.isoformat() if r.start_time else "",
-            "output_preview": (r.output_text or "")[:80],
+            "input_preview": (r.input_text or "")[:160],
+            "output_preview": (r.output_text or "")[:200],
         } for r in result.scalars().all()]
     from datetime import datetime, timezone
     return build_federation_live(
