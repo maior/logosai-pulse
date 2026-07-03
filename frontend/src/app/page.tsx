@@ -228,7 +228,7 @@ export default function Dashboard() {
         )}
 
         {tab === 'tests' && <TestsTab />}
-        {tab === 'feedback' && <FeedbackTab period={period} />}
+        {tab === 'feedback' && <FeedbackTab />}
         {tab === 'learning' && <LearningTab />}
       </main>
 

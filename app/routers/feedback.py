@@ -52,7 +52,7 @@ async def get_feedback(agent_id: str = "", period: str = Query("24h"), limit: in
     from datetime import datetime, timezone, timedelta
     from sqlalchemy import select, desc
 
-    periods = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720}
+    periods = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720, "90d": 2160, "all": 876000}
     since = datetime.now(timezone.utc) - timedelta(hours=periods.get(period, 24))
 
     try:
@@ -91,7 +91,7 @@ async def get_feedback_stats(period: str = Query("24h")):
     from datetime import datetime, timezone, timedelta
     from sqlalchemy import select, func
 
-    periods = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720}
+    periods = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720, "90d": 2160, "all": 876000}
     since = datetime.now(timezone.utc) - timedelta(hours=periods.get(period, 24))
 
     try:
