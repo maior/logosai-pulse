@@ -281,3 +281,30 @@ async def get_trend(period: str = Query("24h")):
     if not collector:
         return []
     return await collector.get_hourly_trend(period)
+
+@router.get("/federation/live")
+async def federation_live(hours: int = 24):
+    """연합 실시간 모니터링 — 연결 기관 + 트랜잭션 (stage=federation span 집계)."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.database import get_db_context
+    from app.models.observability import TraceSpanModel
+    from app.services.federation_monitor import build_federation_live
+
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    async with get_db_context() as session:
+        result = await session.execute(
+            select(TraceSpanModel)
+            .where(TraceSpanModel.name.like("federation.%"))
+            .where(TraceSpanModel.start_time >= since)
+            .order_by(TraceSpanModel.start_time.desc())
+            .limit(200)
+        )
+        spans = [{
+            "agent_id": r.agent_id,
+            "status": r.status,
+            "duration_ms": r.duration_ms,
+            "start_time": r.start_time.isoformat() if r.start_time else "",
+            "output_preview": (r.output_text or "")[:80],
+        } for r in result.scalars().all()]
+    return build_federation_live(spans)

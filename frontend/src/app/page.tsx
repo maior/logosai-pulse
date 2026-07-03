@@ -13,6 +13,7 @@ import { LearningTab } from '@/components/LearningTab';
 import { ForgeTab } from '@/components/ForgeTab';
 import { JourneyTab } from '@/components/JourneyTab';
 import { SatisfactionCard, TopErrorAgentsCard, ConversationsCard } from '@/components/InsightCards';
+import { FederationMonitor } from '@/components/FederationMonitor';
 import { TestsTab } from '@/components/TestsTab';
 import { ACPHealthCard } from '@/components/ACPHealthCard';
 
@@ -204,6 +205,8 @@ export default function Dashboard() {
               <ConversationsCard />
             </div>
             <ACPHealthCard />
+            <FederationMonitor />
+
             <TrendChart trend={trend} />
           </>
         )}
