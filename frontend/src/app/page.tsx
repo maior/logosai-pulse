@@ -14,16 +14,18 @@ import { ForgeTab } from '@/components/ForgeTab';
 import { JourneyTab } from '@/components/JourneyTab';
 import { SatisfactionCard, TopErrorAgentsCard, ConversationsCard } from '@/components/InsightCards';
 import { FederationMonitor } from '@/components/FederationMonitor';
+import { FederationTab } from '@/components/FederationTab';
 import { TestsTab } from '@/components/TestsTab';
 import { ACPHealthCard } from '@/components/ACPHealthCard';
 
 const API = process.env.NEXT_PUBLIC_PULSE_API || 'http://localhost:8095';
 
-type Tab = 'dashboard' | 'journey' | 'forge' | 'traces' | 'tests' | 'feedback' | 'learning';
+type Tab = 'dashboard' | 'federation' | 'journey' | 'forge' | 'traces' | 'tests' | 'feedback' | 'learning';
 
 const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'journey',   label: 'Journey'   },
+  { id: 'dashboard',  label: 'Dashboard'  },
+  { id: 'federation', label: 'Federation' },
+  { id: 'journey',    label: 'Journey'    },
   { id: 'forge',     label: 'Forge'     },
   { id: 'traces',    label: 'Traces'    },
   { id: 'tests',     label: 'Tests'     },
@@ -211,6 +213,7 @@ export default function Dashboard() {
           </>
         )}
 
+        {tab === 'federation' && <FederationTab />}
         {tab === 'journey' && <JourneyTab period={period} />}
         {tab === 'forge' && <ForgeTab period={period} />}
 

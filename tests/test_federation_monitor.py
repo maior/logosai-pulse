@@ -53,6 +53,30 @@ def test_transactions_latest_first():
     print("PASS transactions")
 
 
+def test_institution_agent_breakdown():
+    """전략 탭: 각 기관이 호출한 에이전트별 분해가 있어야 한다."""
+    out = build_federation_live(SPANS)
+    by_id = {i["peer_id"]: i for i in out["institutions"]}
+    # instB 는 weather_agent 를 2회 (성공1 + 실패1)
+    agents_b = by_id["instB"]["agents"]
+    assert agents_b == [{"agent_id": "weather_agent", "calls": 2}], agents_b
+    assert by_id["instA"]["agents"] == [{"agent_id": "math_agent", "calls": 1}]
+    print("PASS agent-breakdown")
+
+
+def test_timeline_buckets():
+    """전략 탭: 시간대별 위임 트래픽 버킷 (성공/실패 분리)."""
+    out = build_federation_live(SPANS)
+    tl = out["timeline"]
+    assert isinstance(tl, list) and tl, "timeline 비어있음"
+    # 각 버킷: hour, success, error
+    total_s = sum(b["success"] for b in tl)
+    total_e = sum(b["error"] for b in tl)
+    assert total_s == 3 and total_e == 1  # SPANS 중 연합 4건 (성공3 실패1)
+    assert all("hour" in b for b in tl)
+    print("PASS timeline")
+
+
 def test_empty_input():
     out = build_federation_live([])
     assert out["totals"] == {"institutions": 0, "transactions": 0, "success": 0}
@@ -62,7 +86,8 @@ def test_empty_input():
 if __name__ == "__main__":
     fails = []
     for fn in [test_parse_fed_agent, test_institutions_aggregated,
-               test_transactions_latest_first, test_empty_input]:
+               test_transactions_latest_first, test_institution_agent_breakdown,
+               test_timeline_buckets, test_empty_input]:
         try:
             fn()
         except Exception as e:

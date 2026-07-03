@@ -18,7 +18,10 @@ def parse_fed_agent(agent_id: str):
 
 
 def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """federation span 목록 → {institutions, transactions, totals}.
+    """federation span 목록 → {institutions, transactions, timeline, totals}.
+
+    전략 모니터링용 확장 (2026-07-03): 기관별 에이전트 분해(agents) +
+    시간대별 트래픽 버킷(timeline).
 
     Args:
         spans: dict 목록 — agent_id, status, duration_ms, start_time(iso str),
@@ -26,6 +29,7 @@ def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     institutions: Dict[str, Dict[str, Any]] = {}
     transactions: List[Dict[str, Any]] = []
+    timeline: Dict[str, Dict[str, int]] = {}
 
     for s in spans:
         parsed = parse_fed_agent(s.get("agent_id", ""))
@@ -37,13 +41,19 @@ def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         inst = institutions.setdefault(peer, {
             "peer_id": peer, "calls": 0, "success": 0, "error": 0,
-            "total_ms": 0, "last_seen": "",
+            "total_ms": 0, "last_seen": "", "agent_counts": {},
         })
         inst["calls"] += 1
         inst["success" if ok else "error"] += 1
         inst["total_ms"] += int(s.get("duration_ms") or 0)
+        inst["agent_counts"][agent] = inst["agent_counts"].get(agent, 0) + 1
         if ts > inst["last_seen"]:
             inst["last_seen"] = ts
+
+        # 시간대(시각의 앞 13자 = 'YYYY-MM-DDTHH') 버킷
+        hour = ts[:13] if len(ts) >= 13 else ts
+        bucket = timeline.setdefault(hour, {"success": 0, "error": 0})
+        bucket["success" if ok else "error"] += 1
 
         transactions.append({
             "ts": ts,
@@ -58,6 +68,10 @@ def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
     inst_list = []
     for inst in institutions.values():
         calls = inst["calls"]
+        agents = sorted(
+            ({"agent_id": a, "calls": c} for a, c in inst["agent_counts"].items()),
+            key=lambda x: x["calls"], reverse=True,
+        )
         inst_list.append({
             "peer_id": inst["peer_id"],
             "calls": calls,
@@ -65,12 +79,19 @@ def build_federation_live(spans: List[Dict[str, Any]]) -> Dict[str, Any]:
             "error_count": inst["error"],
             "avg_ms": int(inst["total_ms"] / calls) if calls else 0,
             "last_seen": inst["last_seen"],
+            "agents": agents,
         })
     inst_list.sort(key=lambda i: i["calls"], reverse=True)
+
+    timeline_list = [
+        {"hour": h, "success": v["success"], "error": v["error"]}
+        for h, v in sorted(timeline.items())
+    ]
 
     return {
         "institutions": inst_list,
         "transactions": transactions[:50],
+        "timeline": timeline_list,
         "totals": {
             "institutions": len(inst_list),
             "transactions": len(transactions),
