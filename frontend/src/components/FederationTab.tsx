@@ -9,17 +9,17 @@
  *   3) 기관별 SLA 카드 — 성공률 게이지 · 지연 · 호출 에이전트
  *   4) 트랜잭션 로그 (실시간 감사 피드)
  *
- * 데이터: GET /api/v1/federation/live (stage=federation span, 8초 폴링)
- * 색 규칙(dataviz): 성공/실패=status 토큰(emerald/rose, 숫자 동반),
- *   기관=categorical(항상 peer_id 라벨 동반 — identity 색-단독 금지), 단일 x축.
+ * 데이터: GET /api/v1/federation/live — SSE(new_span) 실시간 갱신 + 45초 안전망 폴링
+ *   (useFederationLive 훅). 색 규칙(dataviz): 성공/실패=status 토큰(emerald/rose,
+ *   숫자 동반), 기관=categorical(항상 peer_id 라벨 동반 — identity 색-단독 금지), 단일 x축.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
+import { useFederationLive } from '@/hooks/useFederationLive';
 
-const API = process.env.NEXT_PUBLIC_PULSE_API || 'http://localhost:8095';
 const PEER_COLORS = ['#818cf8', '#2dd4bf', '#f59e0b', '#f472b6', '#a3e635', '#60a5fa'];
 const OK = '#34d399';   // status good
 const BAD = '#fb7185';  // status critical
@@ -161,18 +161,9 @@ function RateRing({ pct }: { pct: number }) {
 const TX_STATUS: Record<string, string> = { success: 'text-emerald-400', error: 'text-rose-400', cancelled: 'text-amber-400' };
 
 export function FederationTab() {
-  const [data, setData] = useState<LiveData>({
+  const { data, loaded } = useFederationLive<LiveData>(168, {
     institutions: [], transactions: [], timeline: [], totals: { institutions: 0, transactions: 0, success: 0 },
   });
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch(`${API}/api/v1/federation/live?hours=168`);
-      setData(await r.json());
-    } catch { /* noop */ } finally { setLoaded(true); }
-  }, []);
-  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
 
   const { institutions, transactions, timeline, totals } = data;
   const successPct = totals.transactions ? Math.round((totals.success / totals.transactions) * 100) : 0;

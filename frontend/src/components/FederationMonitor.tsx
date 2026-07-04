@@ -5,12 +5,11 @@
  *
  * 좌측: 기관 토폴로지 (중앙 = 본 기관, 주변 = 연합 피어 노드 — 호출량·상태·평균지연)
  * 우측: 트랜잭션 피드 (시각 · 피어 · 에이전트 · 소요 · 상태)
- * 데이터: GET /api/v1/federation/live (stage=federation span 집계, 8초 폴링)
+ * 데이터: GET /api/v1/federation/live — SSE(new_span) 실시간 갱신 + 45초 안전망 폴링
+ *   (useFederationLive 훅).
  */
 
-import { useState, useEffect, useCallback } from 'react';
-
-const API = process.env.NEXT_PUBLIC_PULSE_API || 'http://localhost:8095';
+import { useFederationLive } from '@/hooks/useFederationLive';
 
 interface Institution {
   peer_id: string;
@@ -105,17 +104,9 @@ const TX_STATUS: Record<string, string> = {
 };
 
 export function FederationMonitor() {
-  const [data, setData] = useState<LiveData>({
+  const { data } = useFederationLive<LiveData>(24, {
     institutions: [], transactions: [], totals: { institutions: 0, transactions: 0, success: 0 },
   });
-
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch(`${API}/api/v1/federation/live?hours=24`);
-      setData(await r.json());
-    } catch { /* noop */ }
-  }, []);
-  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
 
   const { institutions, transactions, totals } = data;
   if (totals.transactions === 0) return null;  // 연합 미사용 시 대시보드에서 숨김
