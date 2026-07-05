@@ -94,6 +94,18 @@ class LearningLoop:
                 logger.warning(f"🧠 {agent_id}: FORGE improvement failed")
                 continue
 
+            # Phase A-보완 S1 (2026-07-05): scheduled = ACP 가 개선을 백그라운드로
+            # 수행 중이며 Shadow 66%·A/B 롤백도 ACP 파이프라인이 소유한다.
+            # 여기서 즉시 로컬 shadow 를 돌리면 아직 교체되지 않은 구버전을
+            # 테스트하는 시점 오류 → 위임 기록 + 쿨다운만 걸고 종료.
+            if improved.get("scheduled"):
+                await self.record_improvement(
+                    agent_id, patterns,
+                    {"pass_rate": -1, "tested": 0, "passed": 0})  # -1 = ACP 위임 표식
+                self._improvement_history[agent_id] = time.time()
+                logger.info(f"🧠 {agent_id}: improvement delegated to ACP (shadow/AB owned by ACP)")
+                continue
+
             # Step 4: Shadow Test
             test_result = await self.shadow_test(agent_id, patterns["failure_queries"])
             if test_result["pass_rate"] < SHADOW_PASS_RATE:
@@ -226,34 +238,44 @@ class LearningLoop:
     # ═══════════════════════════════════════════
 
     async def request_improvement(self, agent_id: str, patterns: Dict) -> Optional[Dict]:
-        """FORGE CodeImprover에 개선 요청."""
+        """ACP 개선 트리거 호출 — 결과를 정직하게 보고한다 (가짜 성공 금지).
+
+        Phase A1 (2026-07-05): 과거에는 GET 전용 export-forge 라우트에 POST
+        (405) 후 무조건 성공을 반환하는 스텁이었다 (결함 D1). 이제 ACP 의
+        실제 트리거 엔드포인트를 호출하고 게이트 판정을 그대로 전달한다.
+        Pulse 는 자체 기준(24h 실패율·부정 피드백)으로 이미 판정했으므로
+        force=True — ACP 쪽 통계 게이트만 생략되고 NEVER_IMPROVE·circuit
+        breaker 는 ACP 가 계속 강제한다.
+        """
         try:
-            # FORGE improve WebSocket 또는 REST
             async with aiohttp.ClientSession() as session:
                 payload = {
                     "agent_id": agent_id,
-                    "failure_queries": patterns["failure_queries"],
-                    "error_messages": patterns["error_messages"],
-                    "hints": f"이 에이전트의 최근 실패율이 높습니다. "
-                             f"실패 쿼리: {patterns['failure_queries'][:3]}. "
-                             f"에러: {patterns['error_messages'][:2]}",
+                    "force": True,
+                    # 참고 신호 (ACP 가 현재는 미사용 — 전방 호환용)
+                    "failure_queries": patterns["failure_queries"][:3],
+                    "error_messages": patterns["error_messages"][:2],
                 }
-
-                # ACP의 FORGE bridge 사용
                 async with session.post(
-                    f"{ACP_URL}/api/failures/export-forge",
+                    f"{ACP_URL}/api/failures/trigger-improve",
                     json=payload,
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as resp:
                     if resp.status == 200:
-                        return await resp.json()
-
-            logger.info(f"🧠 {agent_id}: FORGE improvement requested")
-            return {"success": True, "method": "forge_bridge"}
+                        verdict = await resp.json()
+                        triggered = bool(verdict.get("triggered"))
+                        if triggered:
+                            logger.info(f"🧠 {agent_id}: ACP improvement triggered")
+                        else:
+                            logger.info(
+                                f"🧠 {agent_id}: ACP gate rejected — {verdict.get('reason')}")
+                        return {**verdict, "success": triggered}
+                    return {"success": False, "triggered": False,
+                            "error": f"http_{resp.status}"}
 
         except Exception as e:
             logger.warning(f"request_improvement error: {e}")
-            return None
+            return {"success": False, "triggered": False, "error": str(e)}
 
     # ═══════════════════════════════════════════
     # Step 4: Shadow Test
