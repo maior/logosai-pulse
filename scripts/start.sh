@@ -32,8 +32,10 @@ if [ -n "$STALE" ]; then
 fi
 
 echo "💓 LogosPulse 시작 중... (포트: $PORT)"
-nohup uvicorn app.main:app --host 0.0.0.0 --port $PORT >> logs/logos_pulse.log 2>&1 &
-echo $! > logs/logos_pulse.pid
+# 세션 분리 실행 — nohup 만으로는 다른 창의 세션 정리 시 SIGTERM 으로
+# 함께 죽었다 (2026-07-19 실측). scripts/daemonize.sh 가 새 세션을 만든다.
+"$LOGOS_ROOT/scripts/daemonize.sh" "$PROJECT_DIR/logs/logos_pulse.log" \
+    uvicorn app.main:app --host 0.0.0.0 --port $PORT > logs/logos_pulse.pid
 
 sleep 3
 if curl -s http://localhost:$PORT/health > /dev/null 2>&1; then
