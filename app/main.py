@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, get_db_context
 from app.services.metrics_collector import init_metrics_collector
-from app.routers import ingest, dashboard, feedback, learning, stream, forge, test_runs
+from app.routers import ingest, dashboard, feedback, learning, stream, forge, test_runs, decisions
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,6 +70,7 @@ app.include_router(learning.router)
 app.include_router(stream.router)
 app.include_router(forge.router)
 app.include_router(test_runs.router)
+app.include_router(decisions.router)
 
 
 @app.get("/health")

@@ -22,6 +22,7 @@ Usage:
     stats = await collector.get_dashboard_summary(period="24h")
 """
 
+import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -77,28 +78,67 @@ class MetricsCollector:
         exec_id = execution_id or str(uuid4())
         try:
             async with self._db_factory() as db:
-                execution = AgentExecution(
-                    id=exec_id,
-                    correlation_id=correlation_id or None,
-                    agent_id=agent_id,
-                    agent_name=agent_name or agent_id,
-                    query=(query[:200] if query else None),
-                    success=success,
-                    error_message=(error_message[:500] if error_message else None),
-                    duration_ms=duration_ms,
-                    token_count=token_count,
-                    cost_usd=cost_usd,
-                    metadata_json=metadata,
-                    user_email=user_email or None,
-                    session_id=session_id or None,
+                # 이 실행이 이미 집계됐는지 판별 (placeholder 는 미집계 상태)
+                prior = (await db.execute(
+                    text("SELECT (metadata_json ? 'placeholder') AS is_ph"
+                         " FROM logosus.agent_executions WHERE id = :id"),
+                    {"id": exec_id},
+                )).first()
+                already_counted = prior is not None and not prior.is_ph
+
+                # UPSERT — llm_call 이 먼저 만든 placeholder 를 승격시키고,
+                # 재전송 시 PK 충돌로 기록이 통째로 유실되는 것도 막는다.
+                # token_count/cost_usd 는 GREATEST: ACP 는 최종 execution 에 0 을
+                # 보내므로 덮어쓰면 llm_call 이 누적한 비용이 지워진다.
+                await db.execute(
+                    text("""
+                        INSERT INTO logosus.agent_executions
+                            (id, correlation_id, agent_id, agent_name, query, success,
+                             error_message, duration_ms, token_count, cost_usd,
+                             metadata_json, user_email, session_id, created_at, updated_at)
+                        VALUES
+                            (:id, :corr, :aid, :aname, :q, :ok, :err, :dur, :tok, :cost,
+                             CAST(:meta AS jsonb), :email, :sid, now(), now())
+                        ON CONFLICT (id) DO UPDATE SET
+                            correlation_id = EXCLUDED.correlation_id,
+                            agent_id       = EXCLUDED.agent_id,
+                            agent_name     = EXCLUDED.agent_name,
+                            query          = EXCLUDED.query,
+                            success        = EXCLUDED.success,
+                            error_message  = EXCLUDED.error_message,
+                            duration_ms    = EXCLUDED.duration_ms,
+                            token_count    = GREATEST(agent_executions.token_count,
+                                                      EXCLUDED.token_count),
+                            cost_usd       = GREATEST(agent_executions.cost_usd,
+                                                      EXCLUDED.cost_usd),
+                            metadata_json  = EXCLUDED.metadata_json,
+                            user_email     = EXCLUDED.user_email,
+                            session_id     = EXCLUDED.session_id,
+                            updated_at     = now()
+                    """),
+                    {
+                        "id": exec_id,
+                        "corr": correlation_id or None,
+                        "aid": agent_id,
+                        "aname": agent_name or agent_id,
+                        "q": (query[:200] if query else None),
+                        "ok": success,
+                        "err": (error_message[:500] if error_message else None),
+                        "dur": duration_ms,
+                        "tok": token_count,
+                        "cost": cost_usd,
+                        "meta": json.dumps(metadata) if metadata else None,
+                        "email": user_email or None,
+                        "sid": session_id or None,
+                    },
                 )
-                db.add(execution)
                 await db.commit()
 
-                # 일일 집계 업데이트
-                await self._update_daily_stat(
-                    db, agent_id, agent_name, success, duration_ms, token_count, cost_usd
-                )
+                # 일일 집계 업데이트 — 같은 실행을 두 번 세지 않는다
+                if not already_counted:
+                    await self._update_daily_stat(
+                        db, agent_id, agent_name, success, duration_ms, token_count, cost_usd
+                    )
 
             logger.debug(f"Metrics: execution recorded {agent_id} ({duration_ms:.0f}ms)")
         except Exception as e:
@@ -108,6 +148,7 @@ class MetricsCollector:
 
     async def record_llm_call(
         self,
+        call_id: str = "",
         execution_id: str = "",
         agent_id: str = "",
         model: str = "",
@@ -119,30 +160,60 @@ class MetricsCollector:
         error_message: str = "",
         prompt_preview: str = "",
     ) -> str:
-        """LLM 호출 기록. Returns call_id."""
-        call_id = str(uuid4())
+        """LLM 호출 기록. Returns call_id.
+
+        call_id 를 클라이언트가 발급하면 재전송이 멱등해진다 (버퍼링 전제).
+        미지정이면 서버가 발급 — 기존 발신자 호환.
+        """
+        call_id = call_id or str(uuid4())
         total_tokens = input_tokens + output_tokens
         cost = calculate_cost(model, input_tokens, output_tokens)
 
         try:
             async with self._db_factory() as db:
-                llm_call = LLMCall(
-                    id=call_id,
-                    execution_id=execution_id or None,
-                    agent_id=agent_id or None,
-                    model=model,
-                    provider=provider or None,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens,
-                    cost_usd=cost,
-                    duration_ms=duration_ms,
-                    success=success,
-                    error_message=error_message[:500] if error_message else None,
-                    prompt_preview=prompt_preview[:200] if prompt_preview else None,
-                )
-                db.add(llm_call)
+                # 부모 execution 을 먼저 보장한다.
+                # LLM 호출은 에이전트 실행 '도중' 전송되는데 execution 레코드는
+                # 실행이 '끝난 뒤' 기록되므로, 자식이 항상 먼저 도착한다.
+                # 부모가 없으면 FK 위반으로 조용히 버려졌다 (토큰/비용 100% 유실).
+                if execution_id:
+                    await self._ensure_execution(db, execution_id, agent_id)
+
+                # 재전송 시 중복 삽입 금지. RETURNING 으로 '실제로 삽입됐는지'를
+                # 확인해야 한다 — 행은 안 생겨도 아래 누적만 다시 돌면 비용이 2배가 된다.
+                inserted = (await db.execute(
+                    text("""
+                        INSERT INTO logosus.llm_calls
+                            (id, execution_id, agent_id, model, provider,
+                             input_tokens, output_tokens, total_tokens, cost_usd,
+                             duration_ms, success, error_message, prompt_preview,
+                             created_at, updated_at)
+                        VALUES
+                            (:id, :eid, :aid, :model, :provider,
+                             :in_tok, :out_tok, :tot_tok, :cost,
+                             :dur, :ok, :err, :preview, now(), now())
+                        ON CONFLICT (id) DO NOTHING
+                        RETURNING id
+                    """),
+                    {
+                        "id": call_id,
+                        "eid": execution_id or None,
+                        "aid": agent_id or None,
+                        "model": model,
+                        "provider": provider or None,
+                        "in_tok": input_tokens,
+                        "out_tok": output_tokens,
+                        "tot_tok": total_tokens,
+                        "cost": cost,
+                        "dur": duration_ms,
+                        "ok": success,
+                        "err": error_message[:500] if error_message else None,
+                        "preview": prompt_preview[:200] if prompt_preview else None,
+                    },
+                )).first() is not None
                 await db.commit()
+
+                if not inserted:
+                    return call_id  # 이미 기록된 재전송 — 누적을 반복하지 않는다
 
                 # 소속 execution의 토큰/비용 업데이트
                 if execution_id:
@@ -175,6 +246,28 @@ class MetricsCollector:
             logger.warning(f"Metrics record_llm_call failed: {e}")
 
         return call_id
+
+    async def _ensure_execution(
+        self, db: AsyncSession, execution_id: str, agent_id: str
+    ) -> None:
+        """부모 execution 행이 없으면 placeholder 를 만든다 (FK 충족).
+
+        placeholder 플래그로 표시해두면, 나중에 진짜 execution 이 도착했을 때
+        record_execution 의 UPSERT 가 이를 승격시키고 일일 집계도 한 번만 센다.
+        """
+        await db.execute(
+            text("""
+                INSERT INTO logosus.agent_executions
+                    (id, agent_id, agent_name, success, duration_ms,
+                     token_count, cost_usd, metadata_json, created_at, updated_at)
+                VALUES
+                    (:id, :aid, :aid, true, 0, 0, 0,
+                     '{"placeholder": true}'::jsonb, now(), now())
+                ON CONFLICT (id) DO NOTHING
+            """),
+            {"id": execution_id, "aid": agent_id or "unknown"},
+        )
+        await db.commit()
 
     async def _update_daily_stat(
         self, db: AsyncSession,
@@ -243,10 +336,26 @@ class MetricsCollector:
                         func.avg(AgentExecution.duration_ms).label("avg_duration"),
                         func.sum(AgentExecution.token_count).label("total_tokens"),
                         func.sum(AgentExecution.cost_usd).label("total_cost"),
-                        func.count(func.distinct(AgentExecution.agent_id)).label("active_agents"),
-                    ).where(AgentExecution.created_at >= since)
+                    )
+                    .where(AgentExecution.created_at >= since)
+                    # total_calls 는 '사용자 요청 수' 를 뜻한다. 멀티 실행의 하위
+                    # 에이전트 행을 더하면 과거 수치와 비교가 불가능해지므로 제외.
+                    # NULL ? 'key' 는 NULL 이라 IS NULL 을 함께 봐야 기존 행이 안 사라진다.
+                    .where(text(
+                        "(agent_executions.metadata_json IS NULL"
+                        " OR NOT (agent_executions.metadata_json ? 'parent_trace_id'))"
+                    ))
                 )
                 row = result.one()
+
+                # active_agents 만은 Agents 탭과 같은 모집단이어야 한다.
+                # 위 쿼리는 자식 행을 배제하므로, 멀티로만 쓰인 에이전트가
+                # 통째로 빠지고 대신 'multi' 껍데기가 세어진다 — 별도 조회로 분리.
+                active_agents = (await db.execute(
+                    select(func.count(func.distinct(AgentExecution.agent_id)))
+                    .where(AgentExecution.created_at >= since)
+                    .where(AgentExecution.agent_id != "multi")
+                )).scalar() or 0
 
                 total = row.total_calls or 0
                 success = row.success_count or 0
@@ -258,7 +367,7 @@ class MetricsCollector:
                     "avg_duration_ms": round(row.avg_duration or 0, 1),
                     "total_tokens": row.total_tokens or 0,
                     "total_cost_usd": round(row.total_cost or 0, 4),
-                    "active_agents": row.active_agents or 0,
+                    "active_agents": active_agents,
                 }
         except Exception as e:
             logger.warning(f"Metrics get_dashboard_summary failed: {e}")
@@ -282,6 +391,9 @@ class MetricsCollector:
                         func.max(AgentExecution.created_at).label("last_called"),
                     )
                     .where(AgentExecution.created_at >= since)
+                    # 'multi' 는 오케스트레이션 껍데기라 에이전트가 아니다.
+                    # 실제 참여 에이전트는 하위 execution 행으로 따로 기록된다.
+                    .where(AgentExecution.agent_id != "multi")
                     .group_by(AgentExecution.agent_id, AgentExecution.agent_name)
                     .order_by(desc("total_calls"))
                 )

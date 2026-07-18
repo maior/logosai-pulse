@@ -33,7 +33,11 @@ class ExecutionRecord(BaseModel):
 
 
 class LLMCallRecord(BaseModel):
-    execution_id: str = ""
+    # 클라이언트 발급 ID — 재전송(스풀 replay)을 멱등하게 만든다. 미지정 시 서버 발급.
+    call_id: Optional[str] = ""
+    # trace_id 가 없으면 발신 측이 None 을 보낸다 (server.py:167).
+    # str 로 두면 Pydantic 이 422 로 거부해 기록이 통째로 유실됐다.
+    execution_id: Optional[str] = ""
     agent_id: str = ""
     model: str = ""
     provider: str = ""
