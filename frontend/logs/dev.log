@@ -1,0 +1,54 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:8096
+- Network:       http://192.168.200.186:8096
+✓ Ready in 333ms
+
+ GET / 200 in 221ms (next.js: 101ms, application-code: 121ms)
+ GET / 200 in 29ms (next.js: 5ms, application-code: 25ms)
+ GET / 200 in 19ms (next.js: 1846µs, application-code: 17ms)
+ GET / 200 in 29ms (next.js: 4ms, application-code: 25ms)
+ GET / 200 in 16ms (next.js: 1664µs, application-code: 15ms)
+ GET / 200 in 16ms (next.js: 1143µs, application-code: 15ms)
+ GET / 200 in 65ms (next.js: 17ms, application-code: 48ms)
+ GET / 200 in 55ms (next.js: 11ms, application-code: 43ms)
+ GET / 200 in 59ms (next.js: 16ms, application-code: 43ms)
+✓ Compiled in 261ms
+✓ Compiled in 174ms
+ GET / 200 in 124ms (next.js: 83ms, application-code: 41ms)
+ GET / 200 in 14ms (next.js: 1638µs, application-code: 12ms)
+ GET / 200 in 237ms (next.js: 8ms, application-code: 229ms)
+ GET / 200 in 15ms (next.js: 1344µs, application-code: 14ms)
+ GET / 200 in 16ms (next.js: 1747µs, application-code: 14ms)
+ GET / 200 in 79ms (next.js: 32ms, application-code: 47ms)
+✓ Compiled in 313ms
+ GET / 200 in 23ms (next.js: 6ms, application-code: 18ms)
+ GET / 200 in 53ms (next.js: 7ms, application-code: 46ms)
+ GET / 200 in 57ms (next.js: 8ms, application-code: 49ms)
+✓ Compiled in 62ms
+✓ Compiled in 46ms
+✓ Compiled in 97ms
+ GET / 200 in 25ms (next.js: 6ms, application-code: 19ms)
+ GET / 200 in 68ms (next.js: 5ms, application-code: 62ms)
+ GET / 200 in 55ms (next.js: 7ms, application-code: 48ms)
+✓ Compiled in 70ms
+✓ Compiled in 26ms
+ GET / 200 in 23ms (next.js: 4ms, application-code: 19ms)
+ GET / 200 in 48ms (next.js: 10ms, application-code: 39ms)
+ GET / 200 in 30ms (next.js: 6ms, application-code: 24ms)
+✓ Compiled in 145ms
+✓ Compiled in 176ms
+ GET / 200 in 159ms (next.js: 117ms, application-code: 43ms)
+ GET / 200 in 11ms (next.js: 1723µs, application-code: 10ms)
+✓ Compiled in 35ms
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+✓ Compiled in 66ms
+ GET / 200 in 249ms (next.js: 63ms, application-code: 186ms)
+✓ Compiled in 28ms
+✓ Compiled in 40ms
+ GET / 200 in 34ms (next.js: 9ms, application-code: 25ms)
+ GET / 200 in 20ms (next.js: 3ms, application-code: 18ms)
+[?25h
