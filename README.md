@@ -85,6 +85,20 @@ Metric semantics differ by surface:
 - `summary.total_calls` — user requests (children excluded)
 - Agents tab — per-agent calls (children included, `multi` wrapper excluded)
 
+### Shutdown Safety
+An open SSE connection used to block uvicorn's graceful shutdown forever: the
+listening socket closes first, so the API is already dead, while the process
+stays alive because `lifespan` shutdown is never reached. `ps` and the logs both
+look healthy — in 2026-07-15 this ran for three days and lost every metric.
+
+Three defenses, all required together:
+- `--timeout-graceful-shutdown 10` in `scripts/start.sh`
+- Bounded stream lifetime (`LOGOS_PULSE_SSE_MAX_SECONDS`, default 600) with a
+  `retry:` hint so clients come back
+- Client-side auto-reconnect — never call `EventSource.close()` in `onerror`
+
+Health checks must probe the **port**, not process liveness.
+
 ### Delivery Guarantees
 `pulse_client` is fire-and-forget but never silent. It checks the response status,
 counts failures, and warns periodically. Failed payloads are spooled to

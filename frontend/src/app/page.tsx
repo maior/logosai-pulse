@@ -92,11 +92,11 @@ export default function Dashboard() {
 
     es.addEventListener('new_llm_call', () => fetchData());
 
+    // 연결이 끊겨도 close() 하지 않는다 — EventSource 의 자동 재연결에 맡긴다.
+    // 예전엔 5초 뒤 영구 close 해서, 일시적 끊김이나 서버의 스트림 수명 만료만으로도
+    // 새로고침 전까지 실시간 갱신이 죽었다.
     es.onerror = () => {
       setConnected(false);
-      setTimeout(() => {
-        if (eventSourceRef.current) eventSourceRef.current.close();
-      }, 5000);
     };
 
     return () => es.close();
