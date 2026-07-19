@@ -67,6 +67,30 @@ Root Span: weather_agent.process (5197ms)
 ### LLM Call Tracing
 Each LLM API call tracked: model, provider, input/output tokens, latency, cost.
 
+LLM calls arrive **before** their parent execution (the call happens mid-run; the
+execution record is written after the run ends). The collector creates a
+placeholder parent on demand and promotes it via UPSERT when the real execution
+arrives — otherwise every LLM call is dropped on a foreign-key violation.
+
+Resends are idempotent: the client issues `call_id`, the insert uses
+`ON CONFLICT DO NOTHING`, and token/cost accumulation runs only when the row was
+actually inserted (checked via `RETURNING`).
+
+### Sub-Agent Visibility
+A multi-agent run records one `agent_id="multi"` wrapper **plus one execution per
+participating agent** (linked by `metadata.parent_trace_id`). Without the per-agent
+rows, agents that only run through the orchestrator vanish from the dashboard.
+
+Metric semantics differ by surface:
+- `summary.total_calls` — user requests (children excluded)
+- Agents tab — per-agent calls (children included, `multi` wrapper excluded)
+
+### Delivery Guarantees
+`pulse_client` is fire-and-forget but never silent. It checks the response status,
+counts failures, and warns periodically. Failed payloads are spooled to
+`~/.logosai/pulse_spool.jsonl` (max 5000, oldest dropped) and replayed once the
+server returns. Spans are excluded — they are not yet idempotent.
+
 ### Cost Tracking
 
 | Model | Input ($/1M tokens) | Output ($/1M tokens) |
@@ -187,6 +211,29 @@ Open `http://localhost:8096` — Dashboard, Traces, Feedback, Learning tabs.
 | GET | `/api/v1/trend` | Hourly trend data |
 
 All endpoints support `?period=1h|6h|24h|7d|30d`.
+
+### Decisions (ontology agent selection)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/decisions` | Recent selections + evidence chain (`?limit`, `?agent_id`, `?method`) |
+| GET | `/api/v1/decisions/stats` | Method distribution, GNN+RL adoption rate, label ratio |
+| GET | `/api/v1/decisions/export` | Training data — `(features, action, reward)` |
+
+Source: `ontology/data/selector_stats.json` (read-only; the ontology has no DB).
+Override the path with `LOGOS_SELECTOR_STATS`.
+
+`/export` emits **only records carrying a `feedback` label** — mixing unlabeled
+records would poison the reward signal. Unlabeled ones are reported as a count.
+
+```json
+{
+  "features": {"entities": ["날씨"], "kg_confidence": 0.8,
+               "method": "kg_assisted", "pattern_scores": [1.4, 1.2]},
+  "action": "weather_agent",
+  "reward": {"success": true, "elapsed_ms": 2700, "confidence": 0.015}
+}
+```
 
 #### GET /api/v1/traces/{trace_id}/tree
 
