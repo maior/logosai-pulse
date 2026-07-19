@@ -39,7 +39,37 @@ echo "💓 LogosPulse 시작 중... (포트: $PORT)"
 
 sleep 3
 if curl -s http://localhost:$PORT/health > /dev/null 2>&1; then
-    echo "✅ LogosPulse 시작 완료 (PID: $(cat logs/logos_pulse.pid))"
+    echo "✅ LogosPulse API 시작 완료 (PID: $(cat logs/logos_pulse.pid))"
 else
-    echo "⚠️  시작 대기 중..."
+    echo "⚠️  API 시작 대기 중..."
+fi
+
+# ── 프론트엔드(8096) ──────────────────────────────────────────────────────
+# 기존엔 UI 시작 스크립트가 없어 매번 수동 실행이었다 (2026-07-19 신설).
+# 실행 모드는 기본 production — dev 서버(Turbopack)는 개당 500MB~1.5GB 를
+# 써서, Next 앱 3개를 dev 로 띄우면 16GB 머신이 스왑으로 몰리고 macOS
+# jetsam 이 Node 서비스만 골라 죽였다. HMR 필요시 PULSE_UI_DEV=true
+UI_PORT=8096
+UI_DIR="$PROJECT_DIR/frontend"
+if [ -d "$UI_DIR" ]; then
+    if lsof -i :$UI_PORT -sTCP:LISTEN > /dev/null 2>&1; then
+        echo "⚠️  포트 $UI_PORT 이미 사용 중 (UI 기동 생략)"
+    else
+        cd "$UI_DIR"
+        if [ "${PULSE_UI_DEV:-}" = "true" ]; then
+            UI_CMD_ARGS=(npm run dev -- -p $UI_PORT)
+        else
+            if [ ! -d ".next" ]; then
+                echo "   📦 UI 빌드 산출물이 없어 먼저 빌드합니다 (최초 1회)..."
+                npm run build >> "$PROJECT_DIR/logs/frontend.log" 2>&1 || {
+                    echo "   ❌ UI 빌드 실패"; exit 1; }
+            fi
+            UI_CMD_ARGS=(npm run start -- -p $UI_PORT)
+        fi
+        UI_PID=$("$LOGOS_ROOT/scripts/daemonize.sh" \
+            "$PROJECT_DIR/logs/frontend.log" "${UI_CMD_ARGS[@]}")
+        echo "$UI_PID" > "$PROJECT_DIR/logs/frontend.pid"
+        echo "🖥️  LogosPulse UI 시작 (PID: $UI_PID, 포트: $UI_PORT)"
+        cd "$PROJECT_DIR"
+    fi
 fi

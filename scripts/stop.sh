@@ -41,6 +41,18 @@ fi
 # 3) 잔여 프로세스 (포트 한정 — logos_api 보호)
 pkill -9 -f "uvicorn app.main:app.*--port $PORT" 2>/dev/null
 
+# 4) 프론트엔드(8096) 정리
+UI_PORT=8096
+UI_PID_FILE="$PROJECT_DIR/logs/frontend.pid"
+if [ -f "$UI_PID_FILE" ]; then
+    UP=$(cat "$UI_PID_FILE" 2>/dev/null)
+    [ -n "$UP" ] && ps -p "$UP" > /dev/null 2>&1 && { kill "$UP" 2>/dev/null; sleep 1; \
+        ps -p "$UP" > /dev/null 2>&1 && kill -9 "$UP" 2>/dev/null; echo "✅ UI PID $UP 종료됨"; }
+    rm -f "$UI_PID_FILE"
+fi
+UPIDS=$(lsof -t -i :$UI_PORT -sTCP:LISTEN 2>/dev/null)
+[ -n "$UPIDS" ] && echo "$UPIDS" | xargs kill -9 2>/dev/null
+
 sleep 1
 if lsof -i :$PORT -sTCP:LISTEN > /dev/null 2>&1; then
     echo "⚠️  포트 $PORT 아직 점유 중"
