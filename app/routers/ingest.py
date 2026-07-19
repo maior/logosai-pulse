@@ -3,6 +3,7 @@
 Fire-and-forget: 클라이언트는 응답을 기다리지 않아도 됨.
 """
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -83,6 +84,54 @@ async def ingest_llm_call(record: LLMCallRecord):
     broadcast_event("new_llm_call", {**record.model_dump(), "call_id": call_id})
 
     return {"status": "ok", "call_id": call_id}
+
+
+class EventRecord(BaseModel):
+    """런타임 이벤트 — 휘발하던 장애 신호 (회로 차단/롤백/인터랙션)."""
+    # 클라이언트 발급 ID — 스풀 재전송을 멱등하게 만든다. 미지정 시 서버 발급.
+    event_id: Optional[str] = ""
+    event_type: str = ""
+    source: Optional[str] = ""
+    agent_id: Optional[str] = ""
+    severity: Optional[str] = "info"
+    payload: Optional[Dict[str, Any]] = None
+
+
+@router.post("/event")
+async def ingest_event(record: EventRecord):
+    """런타임 이벤트 수집."""
+    from uuid import uuid4
+    from sqlalchemy import text
+    from app.database import get_db_context
+
+    event_id = record.event_id or str(uuid4())
+    try:
+        async with get_db_context() as db:
+            await db.execute(
+                text("""
+                    INSERT INTO logosus.runtime_events
+                        (id, event_type, source, agent_id, severity, payload, created_at)
+                    VALUES (:id, :et, :src, :aid, :sev, CAST(:pl AS jsonb), now())
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": event_id,
+                    "et": record.event_type or "unknown",
+                    "src": record.source or None,
+                    "aid": record.agent_id or None,
+                    "sev": record.severity or "info",
+                    "pl": json.dumps(record.payload) if record.payload else None,
+                },
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"ingest_event failed: {e}")
+        return {"status": "error", "event_id": event_id}
+
+    from app.routers.stream import broadcast_event
+    broadcast_event("new_runtime_event", {**record.model_dump(), "event_id": event_id})
+
+    return {"status": "ok", "event_id": event_id}
 
 
 class SpanRecord(BaseModel):

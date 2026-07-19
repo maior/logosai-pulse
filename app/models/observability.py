@@ -166,6 +166,50 @@ class UserFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now())
 
 
+class RuntimeEvent(Base):
+    """런타임 이벤트 — 지금까지 휘발하던 장애 신호를 영속화 (2026-07-19).
+
+    CircuitBreaker 전이 / EvolutionMonitor 롤백 / 사용자 인터랙션은 모두
+    인메모리에만 존재해 프로세스 재시작과 함께 사라졌다.
+    종류가 늘어날 것을 전제로 payload 는 jsonb 로 열어둔다.
+    """
+    __tablename__ = "runtime_events"
+    __table_args__ = (
+        Index("ix_event_type_created", "event_type", "created_at"),
+        Index("ix_event_created", "created_at"),
+        {"schema": "logosus"},
+    )
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    agent_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), default="info")
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now()
+    )
+
+
+# 마이그레이션 체계가 없는 저장소라 기동 시 멱등 DDL 로 생성한다
+# (agent_memory_store._create_table() 과 같은 패턴)
+RUNTIME_EVENTS_DDL = """
+CREATE TABLE IF NOT EXISTS logosus.runtime_events (
+    id UUID PRIMARY KEY,
+    event_type VARCHAR(100) NOT NULL,
+    source VARCHAR(100),
+    agent_id VARCHAR(100),
+    severity VARCHAR(20) DEFAULT 'info',
+    payload JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_event_type_created
+    ON logosus.runtime_events (event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_event_created
+    ON logosus.runtime_events (created_at DESC);
+"""
+
+
 COST_PER_1M_TOKENS = {
     "gemini-2.5-flash-lite": {"input": 0.075, "output": 0.30},
     "gemini-2.5-flash": {"input": 0.15, "output": 0.60},

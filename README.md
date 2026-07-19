@@ -226,6 +226,27 @@ Open `http://localhost:8096` — Dashboard, Traces, Feedback, Learning tabs.
 
 All endpoints support `?period=1h|6h|24h|7d|30d`.
 
+### Runtime Events
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/ingest/event` | Record a runtime event (idempotent via `event_id`) |
+| GET | `/api/v1/events` | Event timeline (`?event_type`, `?agent_id`, `?severity`, `?period`) |
+| GET | `/api/v1/events/stats` | Counts by type and severity |
+
+Signals that used to live only in memory and vanished on restart:
+
+| event_type | Producer |
+|---|---|
+| `circuit_breaker.opened` / `.closed` | `acp_server/acp_modules/config.py` |
+| `evolution.degraded` / `.rollback` | `acp_server/acp_modules/evolution_monitor.py` |
+| `interaction.requested` / `.answered` / `.timeout` | `logos_api/app/services/interaction_engine.py` |
+
+Circuit-breaker events fire on **state transitions only** — `record_success()` runs on
+every successful call, so emitting unconditionally would flood the table.
+
+The table is created at startup via idempotent DDL (this repo has no migration tool).
+
 ### Decisions (ontology agent selection)
 
 | Method | Endpoint | Description |
